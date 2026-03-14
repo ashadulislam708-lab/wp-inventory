@@ -1,0 +1,17 @@
+{
+  "features": {
+    "created": "Feature created successfully",
+    "updated": "Feature updated successfully",
+    "deleted": "Feature deleted successfully",
+    "found": "Feature retrieved successfully",
+    "notFound": "Feature with ID {id} not found",
+    "list": "Features retrieved successfully",
+    "featuredList": "Featured products retrieved successfully",
+    "featured": "Feature marked as featured",
+    "unfeatured": "Feature unmarked as featured",
+    "stockUpdated": "Stock quantity updated successfully",
+    "searchResults": "Found {count} matching features",
+    "categoryList": "Features in category '{category}' retrieved successfully",
+    "topRated": "Top-rated features retrieved successfully"
+  }
+}

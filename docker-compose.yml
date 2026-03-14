@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: glam-lavish-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: glam_lavish
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - glam-lavish-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: glam-lavish-backend
+    restart: unless-stopped
+    ports:
+      - '8040:8040'
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/glam_lavish
+      - PORT=8040
+      - MODE=DEV
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - glam-lavish-network
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: glam-lavish-dashboard
+    restart: unless-stopped
+    ports:
+      - '8041:8041'
+    environment:
+      - VITE_API_URL=http://localhost:8040/api
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    networks:
+      - glam-lavish-network
+
+volumes:
+  postgres_data:
+
+networks:
+  glam-lavish-network:
+    driver: bridge
