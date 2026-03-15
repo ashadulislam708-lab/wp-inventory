@@ -1,6 +1,5 @@
-import { route, index } from "@react-router/dev/routes";
+import { route } from "@react-router/dev/routes";
 
 export const publicRoutes = [
-  index("pages/home.tsx"),
-  route("about", "pages/public/about.tsx"),
+  route("tracking/:invoiceId", "pages/tracking/TrackingPage.tsx"),
 ];

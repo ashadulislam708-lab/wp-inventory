@@ -1,50 +1,44 @@
 import { DataSource } from 'typeorm';
-import { User } from 'src/modules/users/user.entity';
-import { RolesEnum } from 'src/shared/enums/role.enum';
-import { ActiveStatusEnum } from 'src/shared/enums/active-status.enum';
-import { UtilsService } from '@infrastructure/utils/utils.service';
+import { User } from '../../modules/users/user.entity';
+import { UserRoleEnum } from '../../shared/enums/user-role.enum';
+import * as bcrypt from 'bcrypt';
 
-export async function seedUsers(
-    dataSource: DataSource,
-    utilsService: UtilsService,
-): Promise<void> {
+export async function seedUsers(dataSource: DataSource): Promise<void> {
     const userRepository = dataSource.getRepository(User);
 
     // Check if users already exist
     const existingUsers = await userRepository.count();
 
     if (existingUsers > 0) {
-        console.log(`ℹ️  ${existingUsers} user(s) already exist in database`);
+        console.log(`${existingUsers} user(s) already exist in database`);
         return;
     }
 
     console.log('Creating default users...');
 
     // Create Admin User
-    const hashedAdminPassword = await utilsService.getHash('admin123');
+    const hashedAdminPassword = await bcrypt.hash('admin123', 10);
     const adminUser = userRepository.create({
-        fullName: 'Admin User',
-        email: 'admin@example.com',
+        name: 'Admin User',
+        email: 'admin@glamlavish.com',
         password: hashedAdminPassword,
-        role: RolesEnum.ADMIN,
-        isActive: ActiveStatusEnum.ACTIVE,
-        emailVerified: true,
+        role: UserRoleEnum.ADMIN,
+        isActive: true,
     });
     await userRepository.save(adminUser);
-    console.log('✅ Admin user created: admin@example.com / admin123');
+    console.log('Admin user created: admin@glamlavish.com / admin123');
 
-    // Create Regular User
-    const hashedUserPassword = await utilsService.getHash('user123');
-    const regularUser = userRepository.create({
-        fullName: 'Test User',
-        email: 'user@example.com',
-        password: hashedUserPassword,
-        role: RolesEnum.USER,
-        isActive: ActiveStatusEnum.ACTIVE,
-        emailVerified: true,
+    // Create Staff User
+    const hashedStaffPassword = await bcrypt.hash('staff123', 10);
+    const staffUser = userRepository.create({
+        name: 'Staff Member',
+        email: 'staff@glamlavish.com',
+        password: hashedStaffPassword,
+        role: UserRoleEnum.STAFF,
+        isActive: true,
     });
-    await userRepository.save(regularUser);
-    console.log('✅ Regular user created: user@example.com / user123');
+    await userRepository.save(staffUser);
+    console.log('Staff user created: staff@glamlavish.com / staff123');
 
-    console.log(`✅ Successfully created 2 users`);
+    console.log('Successfully created 2 users');
 }

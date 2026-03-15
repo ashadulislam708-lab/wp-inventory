@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
-import { envConfigService } from 'src/config/env-config.service';
+import { envConfigService } from '../../config/env-config.service';
 
 @Injectable()
 export class CorsMiddleware implements NestMiddleware {

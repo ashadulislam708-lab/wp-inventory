@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { I18nContext, I18nService } from 'nestjs-i18n';
-import { LanguageEnum } from 'src/shared/enums';
+import { LanguageEnum } from '../../shared/enums';
 
 @Injectable()
 export class I18nHelper {

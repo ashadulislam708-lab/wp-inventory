@@ -1,4 +1,3 @@
-export * from './auth.module';
-export * from './auth.service';
-export * from './auth.controller';
-export * from './dtos';
+export * from './auth.module.js';
+export * from './auth.service.js';
+export * from './auth.controller.js';

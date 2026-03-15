@@ -6,12 +6,12 @@ import {
     IsEnum,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { RolesEnum } from 'src/shared/enums';
+import { UserRoleEnum } from '../../../shared/enums/user-role.enum.js';
 
 export class CreateUserDto {
     @ApiProperty({
         description: 'User email address',
-        example: 'user@example.com',
+        example: 'admin@glamlavish.com',
         format: 'email',
     })
     @IsEmail()
@@ -26,29 +26,20 @@ export class CreateUserDto {
     @MinLength(8)
     password: string;
 
-    @ApiPropertyOptional({
-        description: 'User first name',
-        example: 'John',
+    @ApiProperty({
+        description: 'User display name',
+        example: 'Admin User',
     })
-    @IsOptional()
     @IsString()
-    firstName?: string;
-
-    @ApiPropertyOptional({
-        description: 'User last name',
-        example: 'Doe',
-    })
-    @IsOptional()
-    @IsString()
-    lastName?: string;
+    name: string;
 
     @ApiPropertyOptional({
         description: 'User role',
-        enum: RolesEnum,
-        example: RolesEnum.USER,
-        default: RolesEnum.USER,
+        enum: UserRoleEnum,
+        example: UserRoleEnum.STAFF,
+        default: UserRoleEnum.STAFF,
     })
     @IsOptional()
-    @IsEnum(RolesEnum)
-    role?: RolesEnum;
+    @IsEnum(UserRoleEnum)
+    role?: UserRoleEnum;
 }

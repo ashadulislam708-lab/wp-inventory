@@ -20,7 +20,7 @@ import {
     SuccessResponseDto,
     UpdatedResponseDto,
     DeletedResponseDto,
-} from '@shared/dtos';
+} from '../../shared/dtos';
 
 /**
  * Base Controller with common CRUD operations

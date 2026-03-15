@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Transporter } from 'nodemailer';
-import { mailFrom, mailTransporter } from 'src/config/mail.config';
-import { EmailOptions } from 'src/shared/dtos';
+import { mailFrom, mailTransporter } from '../../config/mail.config';
+import { EmailOptions } from '../../shared/dtos';
 import {
     getRegistrationOtpEmailTemplate,
     getResetPasswordEmailTemplate,
-} from 'src/shared/templates';
+} from '../../shared/templates';
 
 @Injectable()
 export class MailService implements OnModuleInit {

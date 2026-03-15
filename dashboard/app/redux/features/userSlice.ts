@@ -1,6 +1,6 @@
-import { createSlice } from '@reduxjs/toolkit';
-import { createUser, fetchUsers } from '~/services/httpServices/userService';
-import type { UserState } from '~/types/user';
+import { createSlice } from "@reduxjs/toolkit";
+import type { UserState } from "~/types/user";
+import { fetchUsers } from "~/services/httpServices/userService";
 
 const initialState: UserState = {
   users: [],
@@ -9,7 +9,7 @@ const initialState: UserState = {
 };
 
 const userSlice = createSlice({
-  name: 'user',
+  name: "users",
   initialState,
   reducers: {},
   extraReducers: (builder) => {
@@ -23,18 +23,6 @@ const userSlice = createSlice({
         state.users = action.payload;
       })
       .addCase(fetchUsers.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload as string;
-      })
-      .addCase(createUser.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(createUser.fulfilled, (state, action) => {
-        state.loading = false;
-        state.users.push(action.payload);
-      })
-      .addCase(createUser.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       });

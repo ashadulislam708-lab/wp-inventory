@@ -1,12 +1,9 @@
-import { RolesEnum } from '@shared/enums';
+import { UserRoleEnum } from '../enums/user-role.enum.js';
 
 export interface IJwtPayload {
     id: string;
-    fullName: string;
+    name: string;
     email: string;
-    role: RolesEnum;
-
-    image?: string | null;
-    teamName?: string | null;
+    role: UserRoleEnum;
     isActive?: boolean;
 }

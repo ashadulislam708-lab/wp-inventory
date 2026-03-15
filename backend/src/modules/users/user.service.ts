@@ -1,69 +1,90 @@
-import { Injectable, ConflictException } from '@nestjs/common';
-import { BaseService } from 'src/core/base';
-import { I18nHelper, PasswordUtil } from 'src/core/utils';
-import { User } from './user.entity';
-import { UserRepository } from './user.repository';
-import { CreateUserDto, UpdateUserDto } from './dtos';
-import { ResponsePayloadDto } from '@shared/dtos/response.dto';
+import {
+    Injectable,
+    ConflictException,
+    NotFoundException,
+} from '@nestjs/common';
+import { PasswordUtil } from '../../core/utils/password.util.js';
+import { User } from './user.entity.js';
+import { UserRepository } from './user.repository.js';
+import { CreateUserDto } from './dtos/create-user.dto.js';
+import { UpdateUserDto } from './dtos/update-user.dto.js';
 
 @Injectable()
-export class UserService extends BaseService<User> {
-    constructor(
-        private readonly userRepository: UserRepository,
-        private readonly i18nHelper: I18nHelper,
-    ) {
-        super(userRepository, 'User');
+export class UserService {
+    constructor(private readonly userRepository: UserRepository) {}
+
+    /**
+     * Get all users
+     */
+    async getAllUsers(): Promise<User[]> {
+        return this.userRepository.findAll();
     }
 
-    async createUser(
-        createUserDto: CreateUserDto,
-    ): Promise<ResponsePayloadDto<User>> {
-        const existingUser = await this.userRepository.findByEmail(
-            createUserDto.email,
-        );
-        if (existingUser) {
-            if (process.env.MODE === 'DEV') {
-                console.log(
-                    '[UserService] Throwing conflict with email:',
-                    createUserDto.email,
-                );
-            }
+    /**
+     * Get user by ID
+     */
+    async getUserById(id: string): Promise<User> {
+        const user = await this.userRepository.findById(id);
+        if (!user) {
+            throw new NotFoundException(`User with ID ${id} not found`);
+        }
+        return user;
+    }
 
+    /**
+     * Create a new user (admin only)
+     */
+    async createUser(dto: CreateUserDto): Promise<User> {
+        const existingUser = await this.userRepository.findByEmail(dto.email);
+        if (existingUser) {
             throw new ConflictException(
-                this.i18nHelper.t('translation.users.errors.email_exists', {
-                    email: createUserDto.email,
-                }),
+                `User with email ${dto.email} already exists`,
             );
         }
 
-        const hashedPassword = await PasswordUtil.hash(createUserDto.password);
+        const hashedPassword = await PasswordUtil.hash(dto.password);
 
-        const user = await this.userRepository.create({
-            ...createUserDto,
+        return this.userRepository.create({
+            ...dto,
             password: hashedPassword,
         });
-
-        return new ResponsePayloadDto({
-            success: true,
-            statusCode: 201,
-            message: this.i18nHelper.t('translation.users.success.created'),
-            data: user,
-            timestamp: new Date().toISOString(),
-        });
     }
 
-    async updateUser(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-        if (updateUserDto.password) {
-            updateUserDto.password = await PasswordUtil.hash(
-                updateUserDto.password,
-            );
+    /**
+     * Update user details (admin only) -- includes password reset
+     */
+    async updateUser(id: string, dto: UpdateUserDto): Promise<User> {
+        const user = await this.getUserById(id);
+
+        if (dto.email && dto.email !== user.email) {
+            const existing = await this.userRepository.findByEmail(dto.email);
+            if (existing) {
+                throw new ConflictException(
+                    `User with email ${dto.email} already exists`,
+                );
+            }
         }
 
-        const updated = await this.update(id, updateUserDto);
+        const updateData: Partial<User> = { ...dto } as Partial<User>;
+        if (dto.password) {
+            updateData.password = await PasswordUtil.hash(dto.password);
+        }
+
+        const updated = await this.userRepository.update(id, updateData as any);
         if (!updated) {
-            return this.findByIdOrFail(id);
+            return this.getUserById(id);
         }
         return updated;
+    }
+
+    /**
+     * Deactivate user (soft -- set isActive=false)
+     * NEVER hard delete users
+     */
+    async deactivateUser(id: string): Promise<{ message: string }> {
+        const user = await this.getUserById(id);
+        await this.userRepository.update(id, { isActive: false } as any);
+        return { message: `User ${user.email} has been deactivated` };
     }
 
     /**
@@ -71,12 +92,5 @@ export class UserService extends BaseService<User> {
      */
     async findByEmail(email: string): Promise<User | null> {
         return this.userRepository.findByEmail(email);
-    }
-
-    /**
-     * Get all active users
-     */
-    async getActiveUsers(): Promise<User[]> {
-        return this.userRepository.findActiveUsers();
     }
 }

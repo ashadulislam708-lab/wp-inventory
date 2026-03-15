@@ -4,36 +4,37 @@ import { AppService } from './app.service';
 
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 
-//DB
+// DB
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { appDataSource } from './config/db.config';
 
-//Config
+// Config
 import { ConfigModule } from '@nestjs/config';
 import jwtConfig from './config/jwt.config';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { AcceptLanguageResolver, I18nModule, QueryResolver } from 'nestjs-i18n';
-import { join } from 'path';
 import { CorsMiddleware } from './core/middleware';
-import { UserModule } from './modules/users';
-import { AuthModule } from './modules/auth';
 import { PassportModule } from '@nestjs/passport';
 import { JwtAuthGuard, JwtStrategy } from './core/guards';
-import { OtpModule } from '@modules/otp/otp.module';
-import { FeaturesModule } from './modules/features/features.module';
-import { LanguageEnum } from '@shared/enums';
+
+// Feature Modules
+import { AuthModule } from './modules/auth';
+import { UserModule } from './modules/users';
+import { CategoryModule } from './modules/categories/categories.module';
+import { ProductModule } from './modules/products/products.module';
+import { OrderModule } from './modules/orders/orders.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { WooCommerceModule } from './modules/woocommerce/woocommerce.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { SyncModule } from './modules/sync/sync.module';
+import { InvoiceModule } from './modules/invoice/invoice.module';
+
+// Infrastructure
+import { CourierModule } from './infrastructure/courier/courier.module';
 
 @Module({
     imports: [
-        ServeStaticModule.forRoot({
-            rootPath: join(__dirname, '..', 'src/shared/icons'),
-            serveRoot: '/diagnosis-icons',
-        }),
-        ServeStaticModule.forRoot({
-            rootPath: join(process.cwd(), 'src', 'test'),
-            serveRoot: '/test',
-        }),
         ConfigModule.forRoot({
             load: [jwtConfig],
             isGlobal: true,
@@ -42,45 +43,27 @@ import { LanguageEnum } from '@shared/enums';
         ThrottlerModule.forRoot([
             {
                 ttl: 60000,
-                limit: 10,
+                limit: 60,
             },
         ]),
-        I18nModule.forRoot({
-            fallbackLanguage: LanguageEnum.KOREAN,
-            loaderOptions: {
-                path: join(process.cwd(), 'src/i18n'),
-                watch: true,
-            },
-            resolvers: [
-                { use: QueryResolver, options: ['lang'] },
-                AcceptLanguageResolver,
-            ],
-            typesOutputPath: join(
-                process.cwd(),
-                'src/generated/i18n.generated.ts',
-            ),
-            formatter: (template: string, ...args: any[]) => {
-                let result = template;
-                if (args[0]) {
-                    Object.keys(args[0]).forEach((key) => {
-                        result = result.replace(
-                            new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-                            args[0][key],
-                        );
-                        result = result.replace(
-                            new RegExp(`\\{${key}\\}`, 'g'),
-                            args[0][key],
-                        );
-                    });
-                }
-                return result;
-            },
-        }),
         PassportModule.register({ defaultStrategy: 'jwt' }),
-        UserModule,
+        ScheduleModule.forRoot(),
+
+        // Infrastructure
+        CourierModule,
+
+        // Feature Modules
         AuthModule,
-        OtpModule,
-        FeaturesModule,
+        UserModule,
+        CategoryModule,
+        ProductModule,
+        OrderModule,
+        DashboardModule,
+        WooCommerceModule,
+        TrackingModule,
+        SettingsModule,
+        SyncModule,
+        InvoiceModule,
     ],
     controllers: [AppController],
     providers: [

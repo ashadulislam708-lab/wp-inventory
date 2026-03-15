@@ -1,29 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-    IsBoolean,
-    IsEmail,
-    IsNotEmpty,
-    IsOptional,
-    IsString,
-} from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 export class LoginDto {
-    @ApiProperty({ example: 'admin@example.com' })
+    @ApiProperty({
+        example: 'admin@glamlavish.com',
+        description: 'User email address',
+    })
     @IsNotEmpty()
     @IsEmail()
     email: string;
 
-    @ApiProperty({ example: 'admin123' })
+    @ApiProperty({
+        example: 'SecurePassword123!',
+        description: 'User password',
+    })
     @IsNotEmpty()
     @IsString()
     password: string;
-
-    @ApiProperty({
-        example: false,
-        description: 'Keep user logged in for 30 days instead of 1 day',
-        required: false,
-    })
-    @IsOptional()
-    @IsBoolean()
-    rememberMe?: boolean;
 }

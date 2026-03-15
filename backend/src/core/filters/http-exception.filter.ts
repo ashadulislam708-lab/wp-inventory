@@ -12,7 +12,7 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ErrorResponseDto, ErrorDetailDto } from '@shared/dtos';
+import { ErrorResponseDto, ErrorDetailDto } from '../../shared/dtos';
 
 @Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {

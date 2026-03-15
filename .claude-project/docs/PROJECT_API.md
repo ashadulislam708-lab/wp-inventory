@@ -975,12 +975,22 @@ All list endpoints return paginated results in a consistent format:
 
 ### Steadfast Courier API
 
-| Operation | Method | URL |
-|-----------|--------|-----|
-| Create Order | POST | `https://portal.steadfast.com.bd/api/v1/create_order` |
-| Cancel Order | POST | `https://portal.steadfast.com.bd/api/v1/cancel_order/{consignment_id}` |
+> Full reference: `.claude-project/docs/STEADFAST_API.md`
+
+**Base URL:** `https://portal.packzy.com/api/v1`
+
+| Operation | Method | URL | Used |
+|-----------|--------|-----|------|
+| Create Order | POST | `/create_order` | Yes — auto-push on order creation |
+| Check Status (by consignment ID) | GET | `/status_by_cid/{consignment_id}` | Yes — status checks |
+| Check Status (by invoice) | GET | `/status_by_invoice/{invoice}` | Alternative |
+| Create Return Request | POST | `/create_return_request` | Yes — for order cancellation |
 
 **Authentication:** `Api-Key` and `Secret-Key` headers (stored as environment variables).
+
+**Delivery Statuses:** `in_review`, `pending`, `hold`, `delivered_approval_pending`, `partial_delivered_approval_pending`, `cancelled_approval_pending`, `unknown_approval_pending`, `delivered`, `partial_delivered`, `cancelled`, `unknown`
+
+> **Note:** The PRD references a `POST /cancel_order/{consignment_id}` endpoint that is not in the official Steadfast documentation. Use `POST /create_return_request` instead for cancellations.
 
 ### WooCommerce REST API v3
 

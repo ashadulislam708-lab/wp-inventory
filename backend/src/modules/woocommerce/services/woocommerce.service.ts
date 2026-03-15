@@ -1,0 +1,1162 @@
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import axios, { AxiosInstance } from 'axios';
+import * as crypto from 'crypto';
+import { Product } from '../../products/entities/product.entity.js';
+import { ProductVariation } from '../../products/entities/product-variation.entity.js';
+import { Category } from '../../categories/entities/category.entity.js';
+import { Order } from '../../orders/entities/order.entity.js';
+import { OrderItem } from '../../orders/entities/order-item.entity.js';
+import { StockAdjustmentLog } from '../../products/entities/stock-adjustment-log.entity.js';
+import { InvoiceCounter } from '../../invoice/entities/invoice-counter.entity.js';
+import { SyncLog } from '../../sync/entities/sync-log.entity.js';
+import { SyncLogsQueryDto } from '../dto/sync-logs-query.dto.js';
+import { ProductTypeEnum } from '../../../shared/enums/product-type.enum.js';
+import { SyncStatusEnum } from '../../../shared/enums/sync-status.enum.js';
+import { SyncDirectionEnum } from '../../../shared/enums/sync-direction.enum.js';
+import { SyncLogStatusEnum } from '../../../shared/enums/sync-log-status.enum.js';
+import { OrderStatusEnum } from '../../../shared/enums/order-status.enum.js';
+import { OrderSourceEnum } from '../../../shared/enums/order-source.enum.js';
+import { ShippingZoneEnum } from '../../../shared/enums/shipping-zone.enum.js';
+import { ShippingPartnerEnum } from '../../../shared/enums/shipping-partner.enum.js';
+import { SteadfastService } from '../../../infrastructure/courier/steadfast.service.js';
+import { envConfigService } from '../../../config/env-config.service.js';
+
+const WC_STATUS_MAP: Record<string, OrderStatusEnum> = {
+    pending: OrderStatusEnum.PENDING,
+    'on-hold': OrderStatusEnum.PENDING,
+    processing: OrderStatusEnum.PROCESSING,
+    completed: OrderStatusEnum.DELIVERED,
+    cancelled: OrderStatusEnum.CANCELLED,
+    refunded: OrderStatusEnum.RETURNED,
+    failed: OrderStatusEnum.CANCELLED,
+};
+
+const SHIPPING_FEES: Record<ShippingZoneEnum, number> = {
+    [ShippingZoneEnum.INSIDE_DHAKA]: 80,
+    [ShippingZoneEnum.DHAKA_SUB_AREA]: 100,
+    [ShippingZoneEnum.OUTSIDE_DHAKA]: 150,
+};
+
+@Injectable()
+export class WooCommerceService {
+    private readonly logger = new Logger(WooCommerceService.name);
+    private wcClient: AxiosInstance | null = null;
+
+    constructor(
+        @InjectRepository(Product)
+        private readonly productRepository: Repository<Product>,
+        @InjectRepository(ProductVariation)
+        private readonly variationRepository: Repository<ProductVariation>,
+        @InjectRepository(Category)
+        private readonly categoryRepository: Repository<Category>,
+        @InjectRepository(Order)
+        private readonly orderRepository: Repository<Order>,
+        @InjectRepository(OrderItem)
+        private readonly orderItemRepository: Repository<OrderItem>,
+        @InjectRepository(StockAdjustmentLog)
+        private readonly stockLogRepository: Repository<StockAdjustmentLog>,
+        @InjectRepository(InvoiceCounter)
+        private readonly invoiceCounterRepository: Repository<InvoiceCounter>,
+        @InjectRepository(SyncLog)
+        private readonly syncLogRepository: Repository<SyncLog>,
+        private readonly dataSource: DataSource,
+        private readonly steadfastService: SteadfastService,
+    ) {}
+
+    private getWcClient(): AxiosInstance {
+        if (!this.wcClient) {
+            const config = envConfigService.getWooCommerceConfig();
+            if (!config.WC_URL || !config.WC_CONSUMER_KEY) {
+                throw new BadRequestException(
+                    'WooCommerce credentials not configured',
+                );
+            }
+            this.wcClient = axios.create({
+                baseURL: `${config.WC_URL}/wp-json/wc/v3`,
+                auth: {
+                    username: config.WC_CONSUMER_KEY,
+                    password: config.WC_CONSUMER_SECRET,
+                },
+                timeout: 30000,
+            });
+        }
+        return this.wcClient;
+    }
+
+    /**
+     * Verify WooCommerce webhook signature
+     */
+    verifyWebhookSignature(payload: string, signature: string): boolean {
+        const config = envConfigService.getWooCommerceConfig();
+        if (!config.WC_WEBHOOK_SECRET) {
+            this.logger.warn('WC_WEBHOOK_SECRET not configured');
+            return false;
+        }
+
+        const computed = crypto
+            .createHmac('sha256', config.WC_WEBHOOK_SECRET)
+            .update(payload, 'utf8')
+            .digest('base64');
+
+        return computed === signature;
+    }
+
+    /**
+     * Handle WooCommerce product webhook.
+     * Signature verification is handled by WcWebhookGuard before this method is called.
+     */
+    async handleProductWebhook(body: any, rawBody: string) {
+        const wcId = body.id;
+        if (!wcId) {
+            return { status: 'skipped', reason: 'No product ID' };
+        }
+
+        // Check deduplication (5-second window)
+        const existing = await this.productRepository.findOne({
+            where: { wcId },
+        });
+        if (existing?.wcLastSyncedAt) {
+            const timeDiff = Date.now() - existing.wcLastSyncedAt.getTime();
+            if (timeDiff < 5000) {
+                await this.logSync(
+                    SyncDirectionEnum.INBOUND,
+                    'product',
+                    existing.id,
+                    SyncLogStatusEnum.SKIPPED,
+                    body,
+                    'Dedup: synced within 5 seconds',
+                );
+                return { status: 'skipped', reason: 'dedup' };
+            }
+        }
+
+        try {
+            // Handle deleted products
+            if (body.status === 'trash' || body.deleted) {
+                if (existing) {
+                    existing.deletedAt = new Date();
+                    await this.productRepository.save(existing);
+                    await this.logSync(
+                        SyncDirectionEnum.INBOUND,
+                        'product',
+                        existing.id,
+                        SyncLogStatusEnum.SUCCESS,
+                        body,
+                    );
+                }
+                return { status: 'soft-deleted', wcId };
+            }
+
+            // Upsert product content (NOT stock)
+            await this.upsertProduct(body);
+
+            return { status: 'success', wcId };
+        } catch (error: any) {
+            await this.logSync(
+                SyncDirectionEnum.INBOUND,
+                'product',
+                existing?.id || null,
+                SyncLogStatusEnum.FAILED,
+                body,
+                error.message,
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Handle WooCommerce order webhook.
+     * Signature verification is handled by WcWebhookGuard before this method is called.
+     */
+    async handleOrderWebhook(body: any, rawBody: string) {
+        const wcOrderId = body.id;
+        if (!wcOrderId) {
+            return { status: 'skipped', reason: 'No order ID' };
+        }
+
+        // Check if order already exists
+        const existing = await this.orderRepository.findOne({
+            where: { wcOrderId },
+        });
+
+        if (existing) {
+            // Check deduplication (5-second window) using last sync log for this order
+            const recentSync = await this.syncLogRepository
+                .createQueryBuilder('log')
+                .where('log.entityId = :entityId', { entityId: existing.id })
+                .andWhere('log.entityType = :entityType', {
+                    entityType: 'order',
+                })
+                .andWhere('log.direction = :direction', {
+                    direction: SyncDirectionEnum.INBOUND,
+                })
+                .orderBy('log.createdAt', 'DESC')
+                .getOne();
+
+            if (recentSync) {
+                const timeDiff = Date.now() - recentSync.createdAt.getTime();
+                if (timeDiff < 5000) {
+                    await this.logSync(
+                        SyncDirectionEnum.INBOUND,
+                        'order',
+                        existing.id,
+                        SyncLogStatusEnum.SKIPPED,
+                        body,
+                        'Dedup: synced within 5 seconds',
+                    );
+                    return { status: 'skipped', reason: 'dedup' };
+                }
+            }
+
+            // Update status if changed
+            const newStatus =
+                WC_STATUS_MAP[body.status] || OrderStatusEnum.PENDING;
+            if (existing.status !== newStatus) {
+                await this.orderRepository.update(existing.id, {
+                    status: newStatus,
+                });
+            }
+
+            await this.logSync(
+                SyncDirectionEnum.INBOUND,
+                'order',
+                existing.id,
+                SyncLogStatusEnum.SUCCESS,
+                { wcOrderId, status: body.status },
+            );
+
+            return { status: 'updated', orderId: existing.id };
+        }
+
+        try {
+            const order = await this.createOrderFromWc(body);
+            return { status: 'created', orderId: order.id };
+        } catch (error: any) {
+            await this.logSync(
+                SyncDirectionEnum.INBOUND,
+                'order',
+                null,
+                SyncLogStatusEnum.FAILED,
+                body,
+                error.message,
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Import all products from WooCommerce
+     */
+    async importProducts() {
+        const client = this.getWcClient();
+        let page = 1;
+        const perPage = 100;
+        let imported = 0;
+        let updated = 0;
+        let errors = 0;
+        const details: { wcId: number; error: string }[] = [];
+
+        try {
+            while (true) {
+                const response = await client.get('/products', {
+                    params: { page, per_page: perPage, status: 'publish' },
+                });
+
+                const products = response.data;
+                if (!products || products.length === 0) break;
+
+                for (const wcProduct of products) {
+                    try {
+                        const result = await this.upsertProduct(wcProduct);
+                        if (result === 'created') imported++;
+                        else updated++;
+                    } catch (error: any) {
+                        errors++;
+                        details.push({
+                            wcId: wcProduct.id,
+                            error: error.message,
+                        });
+                    }
+                }
+
+                if (products.length < perPage) break;
+                page++;
+            }
+        } catch (error: any) {
+            this.logger.error(
+                `Import failed at page ${page}: ${error.message}`,
+            );
+        }
+
+        await this.logSync(
+            SyncDirectionEnum.INBOUND,
+            'product',
+            null,
+            errors === 0 ? SyncLogStatusEnum.SUCCESS : SyncLogStatusEnum.FAILED,
+            { imported, updated, errors },
+            errors > 0 ? `${errors} errors during import` : null,
+        );
+
+        return { imported, updated, errors, details };
+    }
+
+    /**
+     * Manual full product sync
+     */
+    async syncProducts() {
+        return this.importProducts();
+    }
+
+    /**
+     * Manual order sync (last 30 days)
+     */
+    async syncOrders() {
+        const client = this.getWcClient();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        let page = 1;
+        const perPage = 100;
+        let synced = 0;
+        let errors = 0;
+
+        try {
+            while (true) {
+                const response = await client.get('/orders', {
+                    params: {
+                        page,
+                        per_page: perPage,
+                        after: thirtyDaysAgo.toISOString(),
+                    },
+                });
+
+                const orders = response.data;
+                if (!orders || orders.length === 0) break;
+
+                for (const wcOrder of orders) {
+                    try {
+                        const existing = await this.orderRepository.findOne({
+                            where: { wcOrderId: wcOrder.id },
+                        });
+                        if (!existing) {
+                            await this.createOrderFromWc(wcOrder);
+                        }
+                        synced++;
+                    } catch (error: any) {
+                        errors++;
+                        this.logger.error(
+                            `Order sync error for WC #${wcOrder.id}: ${error.message}`,
+                        );
+                    }
+                }
+
+                if (orders.length < perPage) break;
+                page++;
+            }
+        } catch (error: any) {
+            this.logger.error(`Order sync failed: ${error.message}`);
+        }
+
+        return { synced, errors };
+    }
+
+    /**
+     * Get sync logs with pagination
+     */
+    async getSyncLogs(dto: SyncLogsQueryDto) {
+        const page = dto.page || 1;
+        const limit = dto.limit || 25;
+        const skip = (page - 1) * limit;
+
+        const qb = this.syncLogRepository.createQueryBuilder('log');
+
+        if (dto.direction) {
+            qb.andWhere('log.direction = :direction', {
+                direction: dto.direction,
+            });
+        }
+
+        if (dto.status) {
+            qb.andWhere('log.status = :status', { status: dto.status });
+        }
+
+        if (dto.entityType) {
+            qb.andWhere('log.entityType = :entityType', {
+                entityType: dto.entityType,
+            });
+        }
+
+        qb.orderBy('log.createdAt', 'DESC');
+        qb.skip(skip).take(limit);
+
+        const [data, total] = await qb.getManyAndCount();
+
+        return {
+            data,
+            meta: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        };
+    }
+
+    /**
+     * Check WooCommerce connection status
+     */
+    async checkWcStatus(): Promise<{
+        connected: boolean;
+        url: string;
+        error?: string;
+    }> {
+        const config = envConfigService.getWooCommerceConfig();
+
+        if (!config.WC_URL || !config.WC_CONSUMER_KEY) {
+            return {
+                connected: false,
+                url: config.WC_URL || 'not configured',
+                error: 'WooCommerce credentials not configured',
+            };
+        }
+
+        try {
+            const client = this.getWcClient();
+            await client.get('/system_status');
+            return { connected: true, url: config.WC_URL };
+        } catch (error: any) {
+            return {
+                connected: false,
+                url: config.WC_URL,
+                error: error.message,
+            };
+        }
+    }
+
+    /**
+     * Push product stock to WooCommerce (outbound sync)
+     * For simple products: PUT /wc/v3/products/{wcProductId} with { stock_quantity }
+     * For variations: PUT /wc/v3/products/{wcProductId}/variations/{wcVariationId} with { stock_quantity }
+     *
+     * Updates syncStatus and wcLastSyncedAt on the product/variation.
+     * Logs the operation in sync_logs.
+     * Non-blocking: catches errors and logs them rather than throwing.
+     */
+    async pushStockToWc(
+        productId: string,
+        variationId: string | null = null,
+    ): Promise<void> {
+        try {
+            const client = this.getWcClient();
+
+            if (variationId) {
+                // Push variation stock
+                const variation = await this.variationRepository.findOne({
+                    where: { id: variationId },
+                    relations: ['product'],
+                });
+                if (!variation || !variation.product?.wcId || !variation.wcId) {
+                    this.logger.warn(
+                        `Cannot push variation stock: variation ${variationId} missing WC IDs`,
+                    );
+                    return;
+                }
+
+                const wcProductId = variation.product.wcId;
+                const wcVariationId = variation.wcId;
+
+                await client.put(
+                    `/products/${wcProductId}/variations/${wcVariationId}`,
+                    {
+                        stock_quantity: variation.stockQuantity,
+                        manage_stock: true,
+                    },
+                );
+
+                // Update wcLastSyncedAt for dedup
+                await this.variationRepository.update(variationId, {
+                    wcLastSyncedAt: new Date(),
+                });
+
+                // Also update parent product syncStatus
+                await this.productRepository.update(variation.product.id, {
+                    syncStatus: SyncStatusEnum.SYNCED,
+                    wcLastSyncedAt: new Date(),
+                });
+
+                await this.logSync(
+                    SyncDirectionEnum.OUTBOUND,
+                    'product',
+                    variation.product.id,
+                    SyncLogStatusEnum.SUCCESS,
+                    {
+                        wcProductId,
+                        wcVariationId,
+                        stock_quantity: variation.stockQuantity,
+                    },
+                );
+
+                this.logger.log(
+                    `Pushed variation stock to WC: product ${wcProductId}, variation ${wcVariationId}, qty ${variation.stockQuantity}`,
+                );
+            } else {
+                // Push simple product stock
+                const product = await this.productRepository.findOne({
+                    where: { id: productId },
+                });
+                if (!product || !product.wcId) {
+                    this.logger.warn(
+                        `Cannot push product stock: product ${productId} missing WC ID`,
+                    );
+                    return;
+                }
+
+                await client.put(`/products/${product.wcId}`, {
+                    stock_quantity: product.stockQuantity,
+                    manage_stock: true,
+                });
+
+                // Update syncStatus and wcLastSyncedAt for dedup
+                await this.productRepository.update(productId, {
+                    syncStatus: SyncStatusEnum.SYNCED,
+                    wcLastSyncedAt: new Date(),
+                });
+
+                await this.logSync(
+                    SyncDirectionEnum.OUTBOUND,
+                    'product',
+                    product.id,
+                    SyncLogStatusEnum.SUCCESS,
+                    {
+                        wcProductId: product.wcId,
+                        stock_quantity: product.stockQuantity,
+                    },
+                );
+
+                this.logger.log(
+                    `Pushed product stock to WC: product ${product.wcId}, qty ${product.stockQuantity}`,
+                );
+            }
+        } catch (error: any) {
+            this.logger.error(
+                `Failed to push stock to WC for product ${productId}${variationId ? ` variation ${variationId}` : ''}: ${error.message}`,
+            );
+
+            // Mark product sync status as ERROR
+            try {
+                await this.productRepository.update(productId, {
+                    syncStatus: SyncStatusEnum.ERROR,
+                });
+            } catch {
+                // Ignore error when updating sync status
+            }
+
+            await this.logSync(
+                SyncDirectionEnum.OUTBOUND,
+                'product',
+                productId,
+                SyncLogStatusEnum.FAILED,
+                { variationId },
+                error.message,
+            );
+        }
+    }
+
+    /**
+     * Push stock for all products with wcId to WooCommerce (for reconciliation)
+     * Local stock wins — iterate all products and push local quantities to WC.
+     * Returns summary of results.
+     */
+    async reconcileAllStock(): Promise<{
+        total: number;
+        success: number;
+        failed: number;
+        skipped: number;
+    }> {
+        const summary = { total: 0, success: 0, failed: 0, skipped: 0 };
+
+        try {
+            const client = this.getWcClient();
+
+            // Get all non-deleted products that have a wcId
+            const products = await this.productRepository
+                .createQueryBuilder('product')
+                .leftJoinAndSelect('product.variations', 'variations')
+                .where('product.deletedAt IS NULL')
+                .andWhere('product.wcId IS NOT NULL')
+                .getMany();
+
+            summary.total = products.length;
+
+            for (const product of products) {
+                try {
+                    if (product.variations && product.variations.length > 0) {
+                        // Variable product — push each variation stock
+                        for (const variation of product.variations) {
+                            if (!variation.wcId) {
+                                summary.skipped++;
+                                continue;
+                            }
+
+                            try {
+                                await client.put(
+                                    `/products/${product.wcId}/variations/${variation.wcId}`,
+                                    {
+                                        stock_quantity: variation.stockQuantity,
+                                        manage_stock: true,
+                                    },
+                                );
+
+                                await this.variationRepository.update(
+                                    variation.id,
+                                    { wcLastSyncedAt: new Date() },
+                                );
+                            } catch (varError: any) {
+                                this.logger.error(
+                                    `Reconcile failed for variation ${variation.wcId}: ${varError.message}`,
+                                );
+                                summary.failed++;
+
+                                await this.logSync(
+                                    SyncDirectionEnum.OUTBOUND,
+                                    'product',
+                                    product.id,
+                                    SyncLogStatusEnum.FAILED,
+                                    {
+                                        wcProductId: product.wcId,
+                                        wcVariationId: variation.wcId,
+                                        stock_quantity: variation.stockQuantity,
+                                        type: 'reconciliation',
+                                    },
+                                    varError.message,
+                                );
+                                continue;
+                            }
+                        }
+
+                        // Also push parent product total stock
+                        await client.put(`/products/${product.wcId}`, {
+                            stock_quantity: product.stockQuantity,
+                            manage_stock: true,
+                        });
+                    } else {
+                        // Simple product — push stock directly
+                        await client.put(`/products/${product.wcId}`, {
+                            stock_quantity: product.stockQuantity,
+                            manage_stock: true,
+                        });
+                    }
+
+                    // Update sync timestamps
+                    await this.productRepository.update(product.id, {
+                        syncStatus: SyncStatusEnum.SYNCED,
+                        wcLastSyncedAt: new Date(),
+                    });
+
+                    summary.success++;
+                } catch (productError: any) {
+                    summary.failed++;
+                    this.logger.error(
+                        `Reconcile failed for product ${product.wcId}: ${productError.message}`,
+                    );
+
+                    await this.productRepository.update(product.id, {
+                        syncStatus: SyncStatusEnum.ERROR,
+                    });
+
+                    await this.logSync(
+                        SyncDirectionEnum.OUTBOUND,
+                        'product',
+                        product.id,
+                        SyncLogStatusEnum.FAILED,
+                        {
+                            wcProductId: product.wcId,
+                            stock_quantity: product.stockQuantity,
+                            type: 'reconciliation',
+                        },
+                        productError.message,
+                    );
+                }
+            }
+        } catch (error: any) {
+            this.logger.error(`Stock reconciliation failed: ${error.message}`);
+        }
+
+        return summary;
+    }
+
+    // ============================
+    // Private helper methods
+    // ============================
+
+    private async upsertProduct(
+        wcProduct: any,
+    ): Promise<'created' | 'updated'> {
+        const wcId = wcProduct.id;
+
+        // Upsert category if present
+        let categoryId: string | null = null;
+        if (wcProduct.categories && wcProduct.categories.length > 0) {
+            const wcCat = wcProduct.categories[0];
+            let category = await this.categoryRepository.findOne({
+                where: { wcId: wcCat.id },
+            });
+            if (!category) {
+                category = this.categoryRepository.create({
+                    wcId: wcCat.id,
+                    name: wcCat.name,
+                    slug: wcCat.slug,
+                });
+                await this.categoryRepository.save(category);
+            } else {
+                category.name = wcCat.name;
+                category.slug = wcCat.slug;
+                await this.categoryRepository.save(category);
+            }
+            categoryId = category.id;
+        }
+
+        const isVariable =
+            wcProduct.type === 'variable' ||
+            (wcProduct.variations && wcProduct.variations.length > 0);
+
+        let existing = await this.productRepository.findOne({
+            where: { wcId },
+        });
+
+        const productData: Partial<Product> = {
+            name: wcProduct.name,
+            shortDescription: wcProduct.short_description || null,
+            description: wcProduct.description || null,
+            sku: wcProduct.sku || null,
+            type: isVariable
+                ? ProductTypeEnum.VARIABLE
+                : ProductTypeEnum.SIMPLE,
+            imageUrl: wcProduct.images?.[0]?.src || null,
+            regularPrice: wcProduct.regular_price
+                ? parseFloat(wcProduct.regular_price)
+                : null,
+            salePrice: wcProduct.sale_price
+                ? parseFloat(wcProduct.sale_price)
+                : null,
+            wcId,
+            wcPermalink: wcProduct.permalink || null,
+            categoryId,
+            syncStatus: SyncStatusEnum.SYNCED,
+            wcLastSyncedAt: new Date(),
+        };
+
+        let result: 'created' | 'updated';
+
+        if (existing) {
+            // Update content only, do NOT overwrite stock
+            await this.productRepository.update(existing.id, productData);
+            existing = (await this.productRepository.findOne({
+                where: { id: existing.id },
+            }))!;
+            result = 'updated';
+        } else {
+            // New product -- set initial stock from WC
+            const newProduct = this.productRepository.create({
+                ...productData,
+                stockQuantity: wcProduct.stock_quantity || 0,
+            });
+            existing = await this.productRepository.save(newProduct);
+            result = 'created';
+        }
+
+        // Handle variations
+        if (isVariable && wcProduct.variations) {
+            // Fetch variations from WC if only IDs provided
+            const variationData = wcProduct.variation_data || [];
+            if (
+                variationData.length === 0 &&
+                wcProduct.variations.length > 0 &&
+                typeof wcProduct.variations[0] === 'number'
+            ) {
+                try {
+                    const client = this.getWcClient();
+                    for (const varId of wcProduct.variations) {
+                        const response = await client.get(
+                            `/products/${wcId}/variations/${varId}`,
+                        );
+                        variationData.push(response.data);
+                    }
+                } catch {
+                    // Skip variation import on failure
+                }
+            }
+
+            for (const wcVar of variationData) {
+                const existingVar = await this.variationRepository.findOne({
+                    where: { wcId: wcVar.id },
+                });
+
+                const attrs: Record<string, string> = {};
+                if (wcVar.attributes) {
+                    for (const attr of wcVar.attributes) {
+                        attrs[attr.name] = attr.option;
+                    }
+                }
+
+                const varData: Partial<ProductVariation> = {
+                    productId: existing.id,
+                    sku: wcVar.sku || null,
+                    attributes: attrs,
+                    regularPrice: wcVar.regular_price
+                        ? parseFloat(wcVar.regular_price)
+                        : null,
+                    salePrice: wcVar.sale_price
+                        ? parseFloat(wcVar.sale_price)
+                        : null,
+                    imageUrl: wcVar.image?.src || null,
+                    wcId: wcVar.id,
+                    wcLastSyncedAt: new Date(),
+                };
+
+                if (existingVar) {
+                    // Update content, NOT stock
+                    await this.variationRepository.update(
+                        existingVar.id,
+                        varData,
+                    );
+                } else {
+                    const newVar = this.variationRepository.create({
+                        ...varData,
+                        stockQuantity: wcVar.stock_quantity || 0,
+                    });
+                    await this.variationRepository.save(newVar);
+                }
+            }
+        }
+
+        await this.logSync(
+            SyncDirectionEnum.INBOUND,
+            'product',
+            existing.id,
+            SyncLogStatusEnum.SUCCESS,
+            { wcId, name: wcProduct.name },
+        );
+
+        return result;
+    }
+
+    private async createOrderFromWc(wcOrder: any): Promise<Order> {
+        return this.dataSource
+            .transaction(async (manager) => {
+                // Generate invoice ID
+                const invoiceId = await this.generateInvoiceId(manager);
+
+                // Map WC status
+                const status =
+                    WC_STATUS_MAP[wcOrder.status] || OrderStatusEnum.PENDING;
+
+                // Parse shipping info
+                const shippingZone = ShippingZoneEnum.OUTSIDE_DHAKA; // Default
+                let shippingFee = SHIPPING_FEES[shippingZone];
+                let wcShippingCost: number | null = null;
+
+                if (
+                    wcOrder.shipping_lines &&
+                    wcOrder.shipping_lines.length > 0
+                ) {
+                    wcShippingCost = parseFloat(
+                        wcOrder.shipping_lines[0].total || '0',
+                    );
+                    shippingFee = wcShippingCost || shippingFee;
+                }
+
+                // Build customer info
+                const billing = wcOrder.billing || {};
+                const shipping = wcOrder.shipping || {};
+                const customerName =
+                    `${shipping.first_name || billing.first_name || ''} ${shipping.last_name || billing.last_name || ''}`.trim();
+                const customerPhone = billing.phone || '';
+                const customerAddress = [
+                    shipping.address_1 || billing.address_1,
+                    shipping.address_2 || billing.address_2,
+                    shipping.city || billing.city,
+                    shipping.state || billing.state,
+                    shipping.postcode || billing.postcode,
+                ]
+                    .filter(Boolean)
+                    .join(', ');
+
+                // Calculate subtotal from line items
+                let subtotal = 0;
+                const orderItems: Partial<OrderItem>[] = [];
+
+                // Track products/variations that had stock decremented (for WC sync after commit)
+                const stockDecrementedProducts: Array<{
+                    productId: string;
+                    variationId: string | null;
+                }> = [];
+
+                if (wcOrder.line_items) {
+                    for (const lineItem of wcOrder.line_items) {
+                        const unitPrice = parseFloat(lineItem.price || '0');
+                        const quantity = lineItem.quantity || 1;
+                        const totalPrice = unitPrice * quantity;
+                        subtotal += totalPrice;
+
+                        // Try to find matching local product
+                        let productId: string | null = null;
+                        let variationId: string | null = null;
+                        let variationLabel: string | null = null;
+
+                        if (lineItem.variation_id && lineItem.product_id) {
+                            // Variation product — decrement variation stock
+                            const variation = await manager.findOne(
+                                ProductVariation,
+                                {
+                                    where: { wcId: lineItem.variation_id },
+                                    relations: ['product'],
+                                    lock: { mode: 'pessimistic_write' },
+                                },
+                            );
+
+                            if (variation) {
+                                variationId = variation.id;
+                                productId = variation.productId;
+
+                                // Validate stock before decrement — NEVER allow negative
+                                if (variation.stockQuantity >= quantity) {
+                                    const prevQty = variation.stockQuantity;
+                                    variation.stockQuantity -= quantity;
+                                    await manager.save(
+                                        ProductVariation,
+                                        variation,
+                                    );
+
+                                    // Also update parent product total stock
+                                    const parentProduct = await manager.findOne(
+                                        Product,
+                                        {
+                                            where: { id: variation.productId },
+                                            lock: { mode: 'pessimistic_write' },
+                                        },
+                                    );
+                                    if (parentProduct) {
+                                        parentProduct.stockQuantity -= quantity;
+                                        await manager.save(
+                                            Product,
+                                            parentProduct,
+                                        );
+                                    }
+
+                                    // Log stock adjustment
+                                    await manager.save(
+                                        manager.create(StockAdjustmentLog, {
+                                            productId: variation.productId,
+                                            variationId: variation.id,
+                                            adjustedById: null, // System adjustment (WC webhook)
+                                            previousQty: prevQty,
+                                            newQty: variation.stockQuantity,
+                                            reason: `WC Order Created - ${invoiceId}`,
+                                        }),
+                                    );
+
+                                    stockDecrementedProducts.push({
+                                        productId: variation.productId,
+                                        variationId: variation.id,
+                                    });
+                                } else {
+                                    this.logger.warn(
+                                        `Insufficient stock for variation wcId ${lineItem.variation_id} (available: ${variation.stockQuantity}, requested: ${quantity}). Skipping stock decrement.`,
+                                    );
+                                }
+
+                                // Build variation label
+                                const attrs = variation.attributes || {};
+                                variationLabel =
+                                    Object.values(attrs).join(' / ') || null;
+                            } else {
+                                // Variation not found locally — still try product
+                                const product = await manager.findOne(Product, {
+                                    where: { wcId: lineItem.product_id },
+                                });
+                                productId = product?.id || null;
+                            }
+                        } else if (lineItem.product_id) {
+                            // Simple product — decrement product stock
+                            const product = await manager.findOne(Product, {
+                                where: { wcId: lineItem.product_id },
+                                lock: { mode: 'pessimistic_write' },
+                            });
+
+                            if (product) {
+                                productId = product.id;
+
+                                // Validate stock before decrement — NEVER allow negative
+                                if (product.stockQuantity >= quantity) {
+                                    const prevQty = product.stockQuantity;
+                                    product.stockQuantity -= quantity;
+                                    await manager.save(Product, product);
+
+                                    // Log stock adjustment
+                                    await manager.save(
+                                        manager.create(StockAdjustmentLog, {
+                                            productId: product.id,
+                                            variationId: null,
+                                            adjustedById: null, // System adjustment (WC webhook)
+                                            previousQty: prevQty,
+                                            newQty: product.stockQuantity,
+                                            reason: `WC Order Created - ${invoiceId}`,
+                                        }),
+                                    );
+
+                                    stockDecrementedProducts.push({
+                                        productId: product.id,
+                                        variationId: null,
+                                    });
+                                } else {
+                                    this.logger.warn(
+                                        `Insufficient stock for product wcId ${lineItem.product_id} (available: ${product.stockQuantity}, requested: ${quantity}). Skipping stock decrement.`,
+                                    );
+                                }
+                            }
+                        }
+
+                        orderItems.push({
+                            productId,
+                            variationId,
+                            productName: lineItem.name || 'Unknown Product',
+                            variationLabel,
+                            quantity,
+                            unitPrice,
+                            totalPrice,
+                        });
+                    }
+                }
+
+                const grandTotal = subtotal + shippingFee;
+
+                // Generate QR code
+                const trackingUrl = `${process.env.FRONTEND_URL || 'http://localhost:8041'}/tracking/${invoiceId}`;
+                const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(trackingUrl)}`;
+
+                // Create order
+                const order = manager.create(Order, {
+                    invoiceId,
+                    createdById: null,
+                    source: OrderSourceEnum.WOOCOMMERCE,
+                    status,
+                    customerName: customerName || 'WC Customer',
+                    customerPhone: customerPhone || '00000000000',
+                    customerAddress: customerAddress || 'N/A',
+                    shippingZone,
+                    shippingPartner: ShippingPartnerEnum.STEADFAST,
+                    shippingFee,
+                    subtotal,
+                    grandTotal,
+                    wcOrderId: wcOrder.id,
+                    wcShippingCost,
+                    qrCodeDataUrl,
+                });
+
+                const savedOrder = await manager.save(Order, order);
+
+                // Create items
+                for (const itemData of orderItems) {
+                    const orderItem = manager.create(OrderItem, {
+                        ...itemData,
+                        orderId: savedOrder.id,
+                    });
+                    await manager.save(OrderItem, orderItem);
+                }
+
+                await this.logSync(
+                    SyncDirectionEnum.INBOUND,
+                    'order',
+                    savedOrder.id,
+                    SyncLogStatusEnum.SUCCESS,
+                    { wcOrderId: wcOrder.id },
+                );
+
+                return { order: savedOrder, stockDecrementedProducts };
+            })
+            .then(async ({ order, stockDecrementedProducts: decremented }) => {
+                // Push to Steadfast
+                if (order.status === OrderStatusEnum.PENDING) {
+                    const courierResult =
+                        await this.steadfastService.createOrder({
+                            invoice: order.invoiceId,
+                            recipient_name: order.customerName,
+                            recipient_phone: order.customerPhone,
+                            recipient_address: order.customerAddress,
+                            cod_amount: Number(order.grandTotal),
+                        });
+
+                    if (courierResult) {
+                        await this.orderRepository.update(order.id, {
+                            courierConsignmentId: courierResult.consignmentId,
+                            courierTrackingCode: courierResult.trackingCode,
+                        });
+                    }
+                }
+
+                // Push updated stock to WooCommerce for decremented items (non-blocking)
+                for (const item of decremented) {
+                    this.pushStockToWc(item.productId, item.variationId).catch(
+                        (err) => {
+                            this.logger.error(
+                                `Failed to push stock to WC after WC order for product ${item.productId}: ${err.message}`,
+                            );
+                        },
+                    );
+                }
+
+                return order;
+            });
+    }
+
+    private async generateInvoiceId(manager: any): Promise<string> {
+        const result = await manager.query(
+            `SELECT last_num FROM invoice_counter WHERE id = 1 FOR UPDATE`,
+        );
+
+        let lastNum: number;
+
+        if (!result || result.length === 0) {
+            await manager.query(
+                `INSERT INTO invoice_counter (id, last_num) VALUES (1, 0) ON CONFLICT (id) DO NOTHING`,
+            );
+            lastNum = 0;
+        } else {
+            lastNum = result[0].last_num;
+        }
+
+        const nextNum = lastNum + 1;
+        await manager.query(
+            `UPDATE invoice_counter SET last_num = $1, updated_at = NOW() WHERE id = 1`,
+            [nextNum],
+        );
+
+        return `GL-${String(nextNum).padStart(4, '0')}`;
+    }
+
+    private async logSync(
+        direction: SyncDirectionEnum,
+        entityType: string,
+        entityId: string | null,
+        status: SyncLogStatusEnum,
+        payload: Record<string, unknown> | null,
+        error?: string | null,
+    ): Promise<void> {
+        try {
+            const log = this.syncLogRepository.create({
+                direction,
+                entityType,
+                entityId,
+                status,
+                payload,
+                error: error || null,
+            });
+            await this.syncLogRepository.save(log);
+        } catch (err: any) {
+            this.logger.error(`Failed to write sync log: ${err.message}`);
+        }
+    }
+}

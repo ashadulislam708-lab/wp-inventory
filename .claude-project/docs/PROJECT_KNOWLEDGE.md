@@ -108,7 +108,7 @@ cd dashboard && npm install && npm run dev  # port 8041
 | Service | Purpose | Documentation |
 |---------|---------|---------------|
 | WooCommerce REST API v3 | Product content import, order webhooks, stock sync | https://woocommerce.github.io/woocommerce-rest-api-docs/ |
-| Steadfast Courier API | Auto-push orders, consignment cancellation | https://portal.steadfast.com.bd/api-docs |
+| Steadfast Courier API | Auto-push orders, status checks, return requests | Base: `https://portal.packzy.com/api/v1` — Full ref: `.claude-project/docs/STEADFAST_API.md` |
 | Pathao Courier API (future) | Alternative courier integration (Phase 6) | https://merchant.pathao.com/api-docs |
 
 ## Source of Truth Policy

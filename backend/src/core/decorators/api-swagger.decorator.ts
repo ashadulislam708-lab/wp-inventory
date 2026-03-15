@@ -8,7 +8,7 @@ import {
     ApiExtraModels,
     getSchemaPath,
 } from '@nestjs/swagger';
-import { ResponsePayloadDto, ErrorDetailDto } from '@shared/dtos';
+import { ResponsePayloadDto, ErrorDetailDto } from '../../shared/dtos';
 import { ApiResponseData } from './api-response-data.decorator';
 
 export interface ErrorResponseConfig {

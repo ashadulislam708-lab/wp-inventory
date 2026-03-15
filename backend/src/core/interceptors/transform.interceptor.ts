@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { ResponsePayloadDto } from '@shared/dtos';
+import { ResponsePayloadDto } from '../../shared/dtos';
 
 /**
  * Transform Interceptor to standardize API responses

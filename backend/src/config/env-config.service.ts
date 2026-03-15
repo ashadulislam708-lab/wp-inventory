@@ -18,140 +18,115 @@ class EnvConfigService {
     }
 
     public getPort(): string {
-        return this.getValue('PORT', true);
+        return this.getValue('PORT', false) || '8040';
     }
 
     public isProduction(): boolean {
         const mode = this.getValue('MODE', false);
-        return mode !== 'DEV';
+        return mode === 'PROD';
     }
 
     public getFrontendUrl(): string {
-        return this.getValue('FRONTEND_URL');
+        return this.getValue('FRONTEND_URL', false) || 'http://localhost:8041';
     }
 
     public getOrigins(): string[] {
+        const frontendUrl = this.getFrontendUrl();
         try {
-            return this.getValue('ALLOW_ORIGINS')
-                .split(',')
-                .map((origin) => origin.trim());
+            const allowOrigins = this.getValue('ALLOW_ORIGINS', false);
+            if (allowOrigins) {
+                return allowOrigins.split(',').map((origin) => origin.trim());
+            }
         } catch {
-            return [];
+            // fallback
         }
+        return [frontendUrl, 'http://localhost:8041'];
     }
 
     public getTypeOrmConfig() {
-        return {
-            host: this.getValue('POSTGRES_HOST'),
-            port: parseInt(this.getValue('POSTGRES_PORT')),
-            username: this.getValue('POSTGRES_USER'),
-            password: this.getValue('POSTGRES_PASSWORD'),
-            database: this.getValue('POSTGRES_DATABASE'),
+        // Support DATABASE_URL or individual vars
+        const databaseUrl = this.getValue('DATABASE_URL', false);
+        if (databaseUrl) {
+            const url = new URL(databaseUrl);
+            return {
+                host: url.hostname,
+                port: parseInt(url.port || '5432'),
+                username: url.username,
+                password: url.password,
+                database: url.pathname.slice(1),
+            };
+        }
 
-            nize: false,
-        };
-    }
-
-    public getAwsConfig() {
         return {
-            AWS_REGION: this.getValue('AWS_REGION'),
-            AWS_ACCESS_KEY_ID: this.getValue('AWS_ACCESS_KEY_ID'),
-            AWS_SECRET_ACCESS_KEY: this.getValue('AWS_SECRET_ACCESS_KEY'),
-            AWS_S3_BUCKET: this.getValue('AWS_S3_BUCKET'),
-        };
-    }
-
-    public getMailConfig() {
-        return {
-            MAIL_HOST: this.getValue('MAIL_HOST', false) || 'smtp.gmail.com',
-            MAIL_PORT: parseInt(this.getValue('MAIL_PORT', false)) || 465,
-            MAIL_FROM: this.getValue('MAIL_FROM', false) || 'demo@example.com',
-            GOOGLE_CLIENT_ID:
-                this.getValue('GOOGLE_CLIENT_ID', false) || 'demo-id',
-            GOOGLE_CLIENT_SECRET:
-                this.getValue('GOOGLE_CLIENT_SECRET', false) || 'demo-secret',
-            GOOGLE_CLIENT_REFRESH_TOKEN:
-                this.getValue('GOOGLE_CLIENT_REFRESH_TOKEN', false) ||
-                'demo-refresh-token',
-            GOOGLE_CLIENT_ACCESS_TOKEN:
-                this.getValue('GOOGLE_CLIENT_ACCESS_TOKEN', false) ||
-                'demo-access-token',
-        };
-    }
-
-    public getAppleConfig() {
-        return {
-            APPLE_TEAM_ID: this.getValue('APPLE_TEAM_ID'),
-            APPLE_CLIENT_ID: this.getValue('APPLE_CLIENT_ID'),
-            APPLE_KEY_ID: this.getValue('APPLE_KEY_ID'),
-            APPLE_PRIVATE_KEY: this.getValue('APPLE_PRIVATE_KEY').replace(
-                /\\n/g,
-                '\n',
-            ),
-        };
-    }
-
-    public getTossConfig() {
-        return {
-            TOSS_CLIENT_KEY:
-                this.getValue('TOSS_CLIENT_KEY', false) || 'test_client_key',
-            TOSS_SECRET_KEY:
-                this.getValue('TOSS_SECRET_KEY', false) || 'test_secret_key',
-            TOSS_API_URL:
-                this.getValue('TOSS_API_URL', false) ||
-                'https://api.tosspayments.com',
-        };
-    }
-
-    public getPushNotificationConfig() {
-        return {
-            PROJECT_ID: this.getValue('PROJECT_ID'),
-            PRIVATE_KEY_ID: this.getValue('PRIVATE_KEY_ID'),
-            PRIVATE_KEY: this.getValue('PRIVATE_KEY'),
-            CLIENT_EMAIL: this.getValue('CLIENT_EMAIL'),
+            host: this.getValue('POSTGRES_HOST', false) || 'localhost',
+            port: parseInt(this.getValue('POSTGRES_PORT', false) || '5432'),
+            username: this.getValue('POSTGRES_USER', false) || 'postgres',
+            password: this.getValue('POSTGRES_PASSWORD', false) || 'postgres',
+            database:
+                this.getValue('POSTGRES_DATABASE', false) || 'glam_lavish',
         };
     }
 
     public getAuthJWTConfig() {
         return {
-            AUTH_JWT_SECRET: this.getValue('AUTH_JWT_SECRET'),
-            AUTH_TOKEN_COOKIE_NAME: this.getValue('AUTH_TOKEN_COOKIE_NAME'),
-            AUTH_TOKEN_EXPIRED_TIME: this.getValue('AUTH_TOKEN_EXPIRED_TIME'),
-            AUTH_TOKEN_EXPIRED_TIME_REMEMBER_ME: this.getValue(
-                'AUTH_TOKEN_EXPIRED_TIME_REMEMBER_ME',
-            ),
-            AUTH_REFRESH_TOKEN_COOKIE_NAME: this.getValue(
-                'AUTH_REFRESH_TOKEN_COOKIE_NAME',
-            ),
-            AUTH_REFRESH_TOKEN_EXPIRED_TIME: this.getValue(
-                'AUTH_REFRESH_TOKEN_EXPIRED_TIME',
-            ),
+            AUTH_JWT_SECRET:
+                this.getValue('AUTH_JWT_SECRET', false) ||
+                'fallback-secret-min-32-chars-long-glam-lavish',
+            AUTH_TOKEN_COOKIE_NAME:
+                this.getValue('AUTH_TOKEN_COOKIE_NAME', false) || 'accessToken',
+            AUTH_TOKEN_EXPIRED_TIME:
+                this.getValue('AUTH_TOKEN_EXPIRE_TIME', false) || '1h',
+            AUTH_TOKEN_EXPIRED_TIME_REMEMBER_ME:
+                this.getValue('AUTH_TOKEN_EXPIRED_TIME_REMEMBER_ME', false) ||
+                '30d',
+            AUTH_REFRESH_TOKEN_COOKIE_NAME:
+                this.getValue('AUTH_REFRESH_TOKEN_COOKIE_NAME', false) ||
+                'refreshToken',
+            AUTH_REFRESH_TOKEN_EXPIRED_TIME:
+                this.getValue('AUTH_REFRESH_TOKEN_EXPIRE_TIME', false) || '7d',
+        };
+    }
+
+    public getWooCommerceConfig() {
+        return {
+            WC_URL: this.getValue('WC_URL', false) || '',
+            WC_CONSUMER_KEY: this.getValue('WC_CONSUMER_KEY', false) || '',
+            WC_CONSUMER_SECRET:
+                this.getValue('WC_CONSUMER_SECRET', false) || '',
+            WC_WEBHOOK_SECRET: this.getValue('WC_WEBHOOK_SECRET', false) || '',
+        };
+    }
+
+    public getSteadfastConfig() {
+        return {
+            STEADFAST_API_KEY: this.getValue('STEADFAST_API_KEY', false) || '',
+            STEADFAST_SECRET_KEY:
+                this.getValue('STEADFAST_SECRET_KEY', false) || '',
+            STEADFAST_BASE_URL: 'https://portal.packzy.com/api/v1',
+        };
+    }
+
+    /**
+     * Pathao courier config (Phase 6 scaffold)
+     * Required env vars will be needed when Pathao integration is implemented.
+     */
+    public getPathaoConfig() {
+        const isProduction = this.isProduction();
+        return {
+            PATHAO_CLIENT_ID: this.getValue('PATHAO_CLIENT_ID', false) || '',
+            PATHAO_CLIENT_SECRET:
+                this.getValue('PATHAO_CLIENT_SECRET', false) || '',
+            PATHAO_CLIENT_EMAIL:
+                this.getValue('PATHAO_CLIENT_EMAIL', false) || '',
+            PATHAO_CLIENT_PASSWORD:
+                this.getValue('PATHAO_CLIENT_PASSWORD', false) || '',
+            PATHAO_BASE_URL: isProduction
+                ? 'https://api-hermes.pathao.com'
+                : 'https://hermes-api.p-stageenv.xyz',
         };
     }
 }
 
-const envConfigService = new EnvConfigService(process.env).ensureValues([
-    'POSTGRES_HOST',
-    'POSTGRES_PORT',
-    'POSTGRES_USER',
-    'POSTGRES_PASSWORD',
-    'POSTGRES_DATABASE',
-    'ALLOW_ORIGINS',
-    'MODE',
-    'FRONTEND_URL',
-    'AWS_REGION',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-    'AWS_S3_BUCKET',
-    'APPLE_TEAM_ID',
-    'APPLE_CLIENT_ID',
-    'APPLE_KEY_ID',
-    'APPLE_PRIVATE_KEY',
-
-    'PROJECT_ID',
-    'PRIVATE_KEY_ID',
-    'PRIVATE_KEY',
-    'CLIENT_EMAIL',
-]);
+const envConfigService = new EnvConfigService(process.env);
 
 export { envConfigService };

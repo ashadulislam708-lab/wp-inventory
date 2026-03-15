@@ -1,9 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-    RolesEnum,
-    ActiveStatusEnum,
-    SocialLoginTypeEnum,
-} from '@shared/enums';
+import { ApiProperty } from '@nestjs/swagger';
+import { UserRoleEnum } from '../../../shared/enums/user-role.enum.js';
 
 export class UserResponseDto {
     @ApiProperty({
@@ -13,89 +9,39 @@ export class UserResponseDto {
     id: string;
 
     @ApiProperty({
-        example: 'user@example.com',
+        example: 'admin@glamlavish.com',
         description: 'User email address',
     })
     email: string;
 
-    @ApiPropertyOptional({
-        example: 'John',
-        description: 'User first name',
+    @ApiProperty({
+        example: 'Admin User',
+        description: 'User display name',
     })
-    firstName?: string;
-
-    @ApiPropertyOptional({
-        example: 'Doe',
-        description: 'User last name',
-    })
-    lastName?: string;
+    name: string;
 
     @ApiProperty({
-        example: 'John Doe',
-        description: 'User full name',
-    })
-    fullName: string;
-
-    @ApiProperty({
-        enum: RolesEnum,
-        example: RolesEnum.USER,
+        enum: UserRoleEnum,
+        example: UserRoleEnum.ADMIN,
         description: 'User role',
     })
-    role: RolesEnum;
+    role: UserRoleEnum;
 
     @ApiProperty({
-        enum: ActiveStatusEnum,
-        example: ActiveStatusEnum.ACTIVE,
-        description: 'User active status',
+        example: true,
+        description: 'Whether user account is active',
     })
-    isActive: ActiveStatusEnum;
+    isActive: boolean;
 
     @ApiProperty({
-        example: false,
-        description: 'Whether user email is verified',
-    })
-    emailVerified: boolean;
-
-    @ApiPropertyOptional({
-        enum: SocialLoginTypeEnum,
-        example: SocialLoginTypeEnum.GOOGLE,
-        description: 'Social login provider type',
-    })
-    socialLoginType?: SocialLoginTypeEnum;
-
-    @ApiProperty({
-        example: false,
-        description: 'Whether user account is verified',
-    })
-    isVerified: boolean;
-
-    @ApiPropertyOptional({
-        example: 'https://example.com/avatar.jpg',
-        description: 'User profile image URL',
-    })
-    image?: string | null;
-
-    @ApiPropertyOptional({
-        example: false,
-        description: 'Remember me preference',
-    })
-    rememberMe?: boolean;
-
-    @ApiProperty({
-        example: '2024-11-02T10:30:00.000Z',
+        example: '2026-03-15T10:30:00.000Z',
         description: 'Record creation timestamp',
     })
     createdAt: Date;
 
     @ApiProperty({
-        example: '2024-11-02T10:30:00.000Z',
+        example: '2026-03-15T10:30:00.000Z',
         description: 'Record last update timestamp',
     })
     updatedAt: Date;
-
-    @ApiPropertyOptional({
-        example: null,
-        description: 'Record deletion timestamp (soft delete)',
-    })
-    deletedAt?: Date | null;
 }

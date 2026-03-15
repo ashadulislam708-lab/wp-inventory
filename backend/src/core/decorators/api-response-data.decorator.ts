@@ -1,6 +1,6 @@
 import { applyDecorators, Type } from '@nestjs/common';
 import { ApiExtraModels, ApiResponse, getSchemaPath } from '@nestjs/swagger';
-import { ResponsePayloadDto } from '@shared/dtos';
+import { ResponsePayloadDto } from '../../shared/dtos';
 
 export function ApiResponseData<T extends Type<any>>(
     dto: T,

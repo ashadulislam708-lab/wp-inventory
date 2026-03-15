@@ -1,10 +1,4 @@
-import { S3Client } from '@aws-sdk/client-s3';
-import { envConfigService } from './env-config.service';
+// S3 config - not used in Glam Lavish
+// Kept as a stub to avoid import errors from infrastructure/s3 module
 
-export const s3Client = new S3Client({
-    region: envConfigService.getAwsConfig().AWS_REGION,
-    credentials: {
-        accessKeyId: envConfigService.getAwsConfig().AWS_ACCESS_KEY_ID,
-        secretAccessKey: envConfigService.getAwsConfig().AWS_SECRET_ACCESS_KEY,
-    },
-});
+export const s3Client: any = null;

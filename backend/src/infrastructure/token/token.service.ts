@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { IJwtPayload } from '@shared/interfaces';
+import { IJwtPayload } from '../../shared/interfaces';
 
 @Injectable()
 export class TokenService {
