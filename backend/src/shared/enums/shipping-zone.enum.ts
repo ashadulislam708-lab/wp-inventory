@@ -1,0 +1,5 @@
+export enum ShippingZoneEnum {
+    INSIDE_DHAKA = 'INSIDE_DHAKA',
+    DHAKA_SUB_AREA = 'DHAKA_SUB_AREA',
+    OUTSIDE_DHAKA = 'OUTSIDE_DHAKA',
+}

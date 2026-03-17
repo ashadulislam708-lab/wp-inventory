@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "Glam Lavish" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]: Glam Lavish
+      - navigation [ref=e7]:
+        - link "Dashboard" [ref=e8] [cursor=pointer]:
+          - /url: /
+          - img [ref=e9]
+          - text: Dashboard
+        - link "Products" [ref=e14] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e15]
+          - text: Products
+        - link "Orders" [ref=e19] [cursor=pointer]:
+          - /url: /orders
+          - img [ref=e20]
+          - text: Orders
+        - link "Settings" [ref=e24] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e25]
+          - text: Settings
+      - generic [ref=e29]: Glam Lavish Inventory v1.0
+    - generic [ref=e30]:
+      - banner [ref=e31]:
+        - button "AU Admin User" [ref=e32]:
+          - generic [ref=e34]: AU
+          - generic [ref=e35]: Admin User
+      - main [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e38]:
+            - link [ref=e39] [cursor=pointer]:
+              - /url: /orders
+              - button [ref=e40]:
+                - img
+            - heading "Create Order" [level=1] [ref=e41]
+          - generic [ref=e42]:
+            - generic [ref=e44]:
+              - generic [ref=e46]: Products
+              - generic [ref=e47]:
+                - generic [ref=e48]:
+                  - img [ref=e49]
+                  - textbox "Search products..." [ref=e52]
+                - generic [ref=e53]:
+                  - img [ref=e54]
+                  - paragraph [ref=e55]: Search and add products to the order
+            - generic [ref=e56]:
+              - generic [ref=e57]:
+                - generic [ref=e59]: Customer Information
+                - generic [ref=e61]:
+                  - generic [ref=e62]:
+                    - generic [ref=e63]: Name
+                    - textbox "Name" [ref=e64]:
+                      - /placeholder: Customer name
+                  - generic [ref=e65]:
+                    - generic [ref=e66]: Phone
+                    - textbox "Phone" [ref=e67]:
+                      - /placeholder: 01XXXXXXXXX
+                  - generic [ref=e68]:
+                    - generic [ref=e69]: Address
+                    - textbox "Address" [ref=e70]:
+                      - /placeholder: Full delivery address
+                  - generic [ref=e71]:
+                    - generic [ref=e72]: Shipping Zone
+                    - combobox "Shipping Zone" [ref=e73]:
+                      - generic: Inside Dhaka (80 BDT)
+                      - img
+                    - combobox [ref=e74]
+                  - generic [ref=e75]:
+                    - generic [ref=e76]: Shipping Partner
+                    - combobox "Shipping Partner" [ref=e77]:
+                      - generic: Steadfast
+                      - img
+                    - combobox [ref=e78]
+              - generic [ref=e79]:
+                - generic [ref=e81]: Order Summary
+                - generic [ref=e82]:
+                  - generic [ref=e83]:
+                    - generic [ref=e84]: Items (0)
+                    - generic [ref=e85]: 0 BDT
+                  - generic [ref=e86]:
+                    - generic [ref=e87]: Shipping Fee
+                    - generic [ref=e88]: 80 BDT
+                  - generic [ref=e89]:
+                    - generic [ref=e90]: Total (COD)
+                    - generic [ref=e91]: 80 BDT
+                  - button "Create Order" [disabled]
+  - region "Notifications alt+T"

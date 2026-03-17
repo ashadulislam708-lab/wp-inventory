@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - img [ref=e5]
+    - heading "Order Not Found" [level=2] [ref=e7]
+    - paragraph [ref=e8]: Order with invoice ID GL-0001 not found
+  - region "Notifications alt+T"

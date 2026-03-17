@@ -1,0 +1,116 @@
+{
+  "common": {
+    "error": {
+      "duplicate_entry": "Duplicate entry for {{columnName}}: {{value}}",
+      "user_not_found": "User not found",
+      "pet_not_found": "Pet not found",
+      "diagnosis_document_not_found": "Diagnosis document not found",
+      "current_password_incorrect": "Current password is incorrect",
+      "new_password_cannot_be_same": "New password cannot be the same as the current password",
+      "invalid_uuid": "Invalid UUID",
+      "user_not_found_for_id": "User not found for ID: {{user.id}}",
+      "pet_not_found_for_id": "Pet not found for ID: {{dto.petId}}",
+      "nothing_to_update": "Nothing to update",
+      "something_wrong_try_again": "Something went wrong. Please try again."
+    }
+  },
+  "authentication": {
+    "success": {
+      "access_granted": "Access granted",
+      "login_successful": "Login successful",
+      "signup_successful": "Signup successful",
+      "password_updated": "Password updated",
+      "password_updated_successfully": "Password updated successfully",
+      "successfully_logout": "Successfully logout"
+    },
+    "error": {
+      "email_already_exists": "This email already exists.",
+      "user_not_registered": "You are not a registered user. Please contact the administrator.",
+      "password_does_not_match": "The password does not match.",
+      "passwords_do_not_match": "New password and confirm password do not match.",
+      "account_deleted": "Your account has been deleted",
+      "account_inactive": "Your account is inactive. Please contact the administrator.",
+      "account_access_restricted": "Your account access is restricted. Please contact the administrator.",
+      "something_wrong": "Something went wrong. Please try again.",
+      "missing_social_login_fields": "Missing required fields for social login.",
+      "please_signup_first": "Account not found. Please sign up first.",
+      "failed_create_user_account": "Failed to create user account.",
+      "failed_generate_auth_tokens": "Failed to generate authentication tokens.",
+      "failed_update_user_session": "Failed to update user session.",
+      "database_operation_failed": "Database operation failed.",
+      "new_old_password_same": "New & old password cannot be same",
+      "user_not_found_email": "User not found with this email",
+      "user_not_verified": "Please verify your account with OTP before changing password",
+      "failed_generate_otp": "Failed to generate OTP",
+      "failed_retrieve_otp": "Failed to retrieve OTP",
+      "user_not_found_by_email": "User not found by this email",
+      "invalid_refresh_token": "Invalid Refresh Token.",
+      "invalid_user": "Invalid User",
+      "apple_login_failed": "Apple login failed. Please try again.",
+      "missing_apple_parameters": "Missing required parameters for Apple login.",
+      "invalid_apple_token": "Invalid Apple token received.",
+      "no_email_from_apple": "No email address was provided by Apple.",
+      "admin_access_required": "You are not authorize to login.",
+      "invalid_google_token": "Invalid or expired Google token.",
+      "google_email_not_verified": "Email not verified by Google. Please verify your email first.",
+      "email_mismatch": "Email from token does not match the provided email.",
+      "token_expired": "Authentication token has expired. Please login again.",
+      "invalid_token_format": "Invalid token format. Please provide a valid authentication token.",
+      "kakao_not_implemented": "Kakao login is not yet implemented. Please use another login method.",
+      "invalid_kakao_token": "Invalid or expired Kakao token.",
+      "kakao_email_not_provided": "Email not provided by Kakao. Please ensure email permission is granted.",
+      "kakao_verification_failed": "Kakao token verification failed. Please try again.",
+      "naver_not_implemented": "Naver login is not yet implemented. Please use another login method.",
+      "invalid_naver_token": "Invalid or expired Naver token.",
+      "naver_email_not_provided": "Email not provided by Naver. Please ensure email permission is granted.",
+      "naver_verification_failed": "Naver token verification failed. Please try again.",
+      "naver_permission_denied": "Permission denied for Naver API. Please check application settings.",
+      "naver_service_timeout": "Naver service timeout. Please try again later.",
+      "unsupported_social_login": "Unsupported social login type.",
+      "fullname_mismatch": "Full name from token does not match the provided name.",
+      "missing_apple_token": "Missing Apple token.",
+      "missing_apple_email": "Missing email from Apple.",
+      "expired_apple_token": "Apple token has expired.",
+      "invalid_nonce": "Invalid nonce."
+    }
+  },
+  "otp": {
+    "success": {
+      "otp_sent_successfully": "OTP sent successfully (expires in 2 minutes)",
+      "otp_verification_successfully": "OTP verification successful",
+      "otp_sent_to_email": "OTP sent to your email (expires in 2 minutes)",
+      "otp_verified": "OTP verified successfully"
+    },
+    "error": {
+      "otp_verification_failed": "OTP verification failed",
+      "invalid_otp_code": "Invalid OTP code",
+      "otp_expired": "OTP has expired",
+      "failed_send_otp": "Failed to send OTP",
+      "failed_generate_otp": "Failed to generate OTP",
+      "otp_not_found": "OTP not found or has expired",
+      "too_many_attempts": "Too many OTP verification attempts. Please request a new OTP."
+    }
+  },
+  "file_upload": {
+    "error": {
+      "no_files_provided": "No files provided for upload",
+      "cannot_upload_more_than_10": "Cannot upload more than 10 files in a single request. You attempted to upload {{files.length}} files.",
+      "invalid_file_type": "Invalid file type: {{file.mimetype}}. Allowed types: image/jpeg image/png image/webp application/pdf",
+      "file_size_too_large": "File size too large: {{fileSize}}MB. Maximum allowed size: 10MB",
+      "empty_file_detected": "Empty file detected",
+      "daily_upload_limit_exceeded": "Daily upload limit exceeded. You can upload maximum 10 documents per day. You have already uploaded {{count}} documents today. Please try again tomorrow."
+    }
+  },
+  "users": {
+    "success": {
+      "created": "User created successfully",
+      "user_updated": "User updated successfully",
+      "user_deleted": "User deleted successfully",
+      "user_retrieved": "User retrieved successfully",
+      "users_retrieved": "Users retrieved successfully"
+    },
+    "errors": {
+      "email_exists": "A user with the email {{email}} already exists."
+    }
+  }
+}

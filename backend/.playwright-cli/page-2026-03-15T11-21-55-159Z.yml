@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e4]:
+      - img [ref=e5]
+      - heading "Glam Lavish" [level=1] [ref=e9]
+      - paragraph [ref=e10]: Inventory Management System
+      - paragraph [ref=e11]: Manage products, orders, and courier dispatching
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - heading "Sign in" [level=2] [ref=e15]
+        - paragraph [ref=e16]: Enter your credentials to access the dashboard
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - generic [ref=e20]: Email
+          - textbox "Email" [ref=e21]:
+            - /placeholder: admin@glamlavish.com
+        - generic [ref=e22]:
+          - generic [ref=e23]: Password
+          - textbox "Password" [ref=e24]:
+            - /placeholder: Enter your password
+        - button "Sign in" [ref=e25]
+  - region "Notifications alt+T"

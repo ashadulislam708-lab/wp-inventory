@@ -1,0 +1,79 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "Glam Lavish" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e6]: Glam Lavish
+        - button [ref=e7]:
+          - img
+      - navigation [ref=e8]:
+        - link "Dashboard" [ref=e9] [cursor=pointer]:
+          - /url: /
+          - img [ref=e10]
+          - text: Dashboard
+        - link "Products" [ref=e15] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e16]
+          - text: Products
+        - link "Orders" [ref=e20] [cursor=pointer]:
+          - /url: /orders
+          - img [ref=e21]
+          - text: Orders
+        - link "Settings" [ref=e25] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e26]
+          - text: Settings
+      - generic [ref=e30]: Glam Lavish Inventory v1.0
+    - generic [ref=e31]:
+      - banner [ref=e32]:
+        - button [ref=e33]:
+          - img
+        - button "AU" [ref=e34]:
+          - generic [ref=e36]: AU
+      - main [ref=e37]:
+        - generic [ref=e38]:
+          - heading "Settings" [level=1] [ref=e39]
+          - generic [ref=e40]:
+            - tablist [ref=e41]:
+              - tab "WooCommerce" [ref=e42]
+              - tab "User Management" [active] [selected] [ref=e43]
+              - tab "Sync Logs" [ref=e44]
+            - tabpanel "User Management" [ref=e95]:
+              - button "Add User" [ref=e97]:
+                - img
+                - text: Add User
+              - table [ref=e101]:
+                - rowgroup [ref=e102]:
+                  - row "Name Email Role Created Actions" [ref=e103]:
+                    - columnheader "Name" [ref=e104]
+                    - columnheader "Email" [ref=e105]
+                    - columnheader "Role" [ref=e106]
+                    - columnheader "Created" [ref=e107]
+                    - columnheader "Actions" [ref=e108]
+                - rowgroup [ref=e109]:
+                  - row "Admin User admin@glamlavish.com ADMIN 15 Mar 2026, 11:16 am" [ref=e110]:
+                    - cell "Admin User" [ref=e111]
+                    - cell "admin@glamlavish.com" [ref=e112]
+                    - cell "ADMIN" [ref=e113]:
+                      - generic [ref=e114]: ADMIN
+                    - cell "15 Mar 2026, 11:16 am" [ref=e115]
+                    - cell [ref=e116]:
+                      - generic [ref=e117]:
+                        - button [ref=e118]:
+                          - img
+                        - button [ref=e119]:
+                          - img
+                  - row "Staff Member staff@glamlavish.com STAFF 15 Mar 2026, 11:16 am" [ref=e120]:
+                    - cell "Staff Member" [ref=e121]
+                    - cell "staff@glamlavish.com" [ref=e122]
+                    - cell "STAFF" [ref=e123]:
+                      - generic [ref=e124]: STAFF
+                    - cell "15 Mar 2026, 11:16 am" [ref=e125]
+                    - cell [ref=e126]:
+                      - generic [ref=e127]:
+                        - button [ref=e128]:
+                          - img
+                        - button [ref=e129]:
+                          - img
+  - region "Notifications alt+T"

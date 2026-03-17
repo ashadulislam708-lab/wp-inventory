@@ -1,0 +1,66 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e26]:
+    - complementary [ref=e27]:
+      - link "Glam Lavish" [ref=e29] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e30]: Glam Lavish
+      - navigation [ref=e31]:
+        - link "Dashboard" [ref=e32] [cursor=pointer]:
+          - /url: /
+          - img [ref=e33]
+          - text: Dashboard
+        - link "Products" [ref=e38] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e39]
+          - text: Products
+        - link "Orders" [ref=e43] [cursor=pointer]:
+          - /url: /orders
+          - img [ref=e44]
+          - text: Orders
+        - link "Settings" [ref=e48] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e49]
+          - text: Settings
+      - generic [ref=e53]: Glam Lavish Inventory v1.0
+    - generic [ref=e54]:
+      - banner [ref=e55]:
+        - button "AU Admin User" [ref=e56]:
+          - generic [ref=e58]: AU
+          - generic [ref=e59]: Admin User
+      - main [ref=e60]:
+        - generic [ref=e61]:
+          - heading "Dashboard" [level=1] [ref=e62]
+          - generic [ref=e63]:
+            - generic [ref=e65]:
+              - img [ref=e67]
+              - generic [ref=e71]:
+                - paragraph [ref=e72]: Orders Today
+                - paragraph [ref=e73]: "0"
+            - generic [ref=e75]:
+              - img [ref=e77]
+              - generic [ref=e79]:
+                - paragraph [ref=e80]: Revenue Today
+                - paragraph [ref=e81]: 0 BDT
+            - generic [ref=e83]:
+              - img [ref=e85]
+              - generic [ref=e88]:
+                - paragraph [ref=e89]: Pending Orders
+                - paragraph [ref=e90]: "0"
+            - generic [ref=e92]:
+              - img [ref=e94]
+              - generic [ref=e99]:
+                - paragraph [ref=e100]: Low Stock Items
+                - paragraph [ref=e101]: "0"
+          - generic [ref=e102]:
+            - generic [ref=e104]: Recent Orders
+            - generic [ref=e106]:
+              - img [ref=e107]
+              - heading "No recent orders" [level=3] [ref=e110]
+              - paragraph [ref=e111]: Orders will appear here once they are created.
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e112]:
+        - button "Close toast" [ref=e113] [cursor=pointer]:
+          - img [ref=e114]
+        - img [ref=e118]
+        - generic [ref=e121]: Welcome back!
