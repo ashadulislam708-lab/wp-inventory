@@ -1,4 +1,5 @@
 import type { OrderStatusEnum, OrderSourceEnum } from "~/enums";
+import type { PaginationMeta } from "~/types/common";
 
 export interface DashboardStats {
   totalOrdersToday: number;
@@ -29,7 +30,9 @@ export interface RecentOrder {
 export interface DashboardState {
   stats: DashboardStats | null;
   lowStockProducts: LowStockProduct[];
+  lowStockMeta: PaginationMeta | null;
   recentOrders: RecentOrder[];
+  recentOrdersMeta: PaginationMeta | null;
   loading: boolean;
   error: string | null;
 }

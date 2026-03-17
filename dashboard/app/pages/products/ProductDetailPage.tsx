@@ -49,8 +49,17 @@ import {
   type StockAdjustmentFormData,
 } from "~/utils/validations/stock";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "~/components/ui/dialog";
+import {
   ExternalLink,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FormHandleState } from "~/types/common";
@@ -77,6 +86,7 @@ export default function ProductDetailPage() {
   const [selectedVariation, setSelectedVariation] = useState<string | null>(
     null
   );
+  const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
 
   const form = useForm<StockAdjustmentFormData>({
     resolver: zodResolver(stockAdjustmentSchema),
@@ -96,6 +106,26 @@ export default function ProductDetailPage() {
     };
   }, [dispatch, id]);
 
+  const handleSyncProduct = useCallback(() => {
+    if (!id) return;
+    setFormHandle({ isLoading: true, loadingButtonType: "sync" });
+
+    productService
+      .syncProduct(id)
+      .then(() => {
+        toast.success("Product synced from WooCommerce");
+        dispatch(fetchProductDetail(id));
+      })
+      .catch((err: unknown) => {
+        toast.error(
+          (err as { message?: string })?.message || "Failed to sync product"
+        );
+      })
+      .finally(() => {
+        setFormHandle({ isLoading: false, loadingButtonType: "" });
+      });
+  }, [id, dispatch]);
+
   const handleStockAdjust = useCallback(
     (data: StockAdjustmentFormData) => {
       if (!id) return;
@@ -110,6 +140,7 @@ export default function ProductDetailPage() {
           toast.success("Stock updated successfully");
           form.reset();
           setSelectedVariation(null);
+          setAdjustDialogOpen(false);
           dispatch(fetchProductDetail(id));
         })
         .catch((err: unknown) => {
@@ -197,17 +228,32 @@ export default function ProductDetailPage() {
                       </div>
                     </div>
                   </div>
-                  {product.wcPermalink && (
-                    <a
-                      href={product.wcPermalink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                  <div className="flex items-center gap-3">
+                    {product.wcPermalink && (
+                      <a
+                        href={product.wcPermalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                      >
+                        Edit in WooCommerce
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncProduct}
+                      disabled={formHandle.isLoading && formHandle.loadingButtonType === "sync"}
                     >
-                      Edit in WooCommerce
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
+                      {formHandle.isLoading && formHandle.loadingButtonType === "sync" ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      Sync Product
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -225,6 +271,19 @@ export default function ProductDetailPage() {
                 <p className="text-xs text-gray-400">
                   Alert below: {product.lowStockThreshold}
                 </p>
+                {product.type !== ProductTypeEnum.VARIABLE && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      setSelectedVariation(null);
+                      setAdjustDialogOpen(true);
+                    }}
+                  >
+                    Adjust Stock
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -233,7 +292,7 @@ export default function ProductDetailPage() {
 
       {/* Variations Table (for variable products) */}
       {product.type === ProductTypeEnum.VARIABLE &&
-        product.variations.length > 0 && (
+        (product.variations?.length ?? 0) > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Variations ({product.variations?.length || 0})</CardTitle>
@@ -251,7 +310,7 @@ export default function ProductDetailPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {product.variations.map((variation) => (
+                    {product.variations?.map((variation) => (
                       <TableRow key={variation.id}>
                         <TableCell className="font-medium">
                           {variation.sku}
@@ -287,9 +346,10 @@ export default function ProductDetailPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              setSelectedVariation(variation.id)
-                            }
+                            onClick={() => {
+                              setSelectedVariation(variation.id);
+                              setAdjustDialogOpen(true);
+                            }}
                           >
                             Adjust Stock
                           </Button>
@@ -303,40 +363,58 @@ export default function ProductDetailPage() {
           </Card>
         )}
 
-      {/* Stock Adjustment Form */}
-      <Card className="border-l-4 border-l-indigo-600">
-        <CardHeader>
-          <CardTitle>
-            Adjust Stock
-            {selectedVariation && (
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                (Variation:{" "}
-                {product.variations.find((v) => v.id === selectedVariation)
-                  ?.sku ?? ""}
-                )
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-2"
-                  onClick={() => setSelectedVariation(null)}
-                >
-                  Clear
-                </Button>
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Stock Adjustment Dialog */}
+      <Dialog
+        open={adjustDialogOpen}
+        onOpenChange={(open) => {
+          setAdjustDialogOpen(open);
+          if (!open) {
+            form.reset();
+            setSelectedVariation(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+            <DialogDescription>
+              {selectedVariation ? (
+                <span className="flex items-center gap-2 flex-wrap">
+                  <span>Variation:</span>
+                  <span className="font-mono font-medium text-foreground">
+                    {product.variations?.find((v) => v.id === selectedVariation)?.sku}
+                  </span>
+                  {product.variations
+                    ?.find((v) => v.id === selectedVariation)
+                    ?.attributes &&
+                    Object.entries(
+                      product.variations.find((v) => v.id === selectedVariation)!.attributes
+                    ).map(([key, value]) => (
+                      <Badge key={key} variant="secondary">
+                        {key}: {value}
+                      </Badge>
+                    ))}
+                  <span className="text-muted-foreground">
+                    (Current: {product.variations?.find((v) => v.id === selectedVariation)?.stockQuantity})
+                  </span>
+                </span>
+              ) : (
+                <span>
+                  {product.name} — Current stock: {product.stockQuantity}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(handleStockAdjust)}
-              className="flex flex-col gap-4 sm:flex-row sm:items-end"
+              className="space-y-4"
             >
               <FormField
                 control={form.control}
                 name="quantity"
                 render={({ field }) => (
-                  <FormItem className="flex-1">
+                  <FormItem>
                     <FormLabel>Quantity (+/-)</FormLabel>
                     <FormControl>
                       <Input
@@ -353,7 +431,7 @@ export default function ProductDetailPage() {
                 control={form.control}
                 name="reason"
                 render={({ field }) => (
-                  <FormItem className="flex-1">
+                  <FormItem>
                     <FormLabel>Reason</FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -380,7 +458,7 @@ export default function ProductDetailPage() {
                 control={form.control}
                 name="note"
                 render={({ field }) => (
-                  <FormItem className="flex-1">
+                  <FormItem>
                     <FormLabel>Note</FormLabel>
                     <FormControl>
                       <Textarea
@@ -393,23 +471,32 @@ export default function ProductDetailPage() {
                   </FormItem>
                 )}
               />
-              <Button
-                type="submit"
-                disabled={
-                  formHandle.isLoading &&
-                  formHandle.loadingButtonType === "adjust"
-                }
-              >
-                {formHandle.isLoading &&
-                formHandle.loadingButtonType === "adjust" ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                Adjust Stock
-              </Button>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAdjustDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    formHandle.isLoading &&
+                    formHandle.loadingButtonType === "adjust"
+                  }
+                >
+                  {formHandle.isLoading &&
+                  formHandle.loadingButtonType === "adjust" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Adjust Stock
+                </Button>
+              </DialogFooter>
             </form>
           </Form>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       {/* Stock History */}
       <Card>
@@ -417,7 +504,7 @@ export default function ProductDetailPage() {
           <CardTitle>Stock History</CardTitle>
         </CardHeader>
         <CardContent>
-          {product.stockHistory.length === 0 ? (
+          {!product.stockHistory?.length ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
               No stock adjustments recorded yet.
             </p>
@@ -435,7 +522,7 @@ export default function ProductDetailPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {product.stockHistory.map((entry) => {
+                  {product.stockHistory?.map((entry) => {
                     const change = entry.newQty - entry.previousQty;
                     return (
                       <TableRow key={entry.id}>

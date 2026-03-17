@@ -584,7 +584,7 @@ export default function OrderDetailPage() {
             {order.createdBy && (
               <div>
                 <span className="text-muted-foreground">Created By</span>
-                <p className="font-medium mt-0.5">{order.createdBy}</p>
+                <p className="font-medium mt-0.5">{order.createdBy.name}</p>
               </div>
             )}
           </div>

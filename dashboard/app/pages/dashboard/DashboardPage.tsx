@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAppDispatch, useAppSelector } from "~/redux/store/hooks";
 import {
@@ -18,6 +18,7 @@ import {
 } from "~/components/ui/table";
 import LoadingSpinner from "~/components/atoms/LoadingSpinner";
 import EmptyState from "~/components/atoms/EmptyState";
+import Pagination from "~/components/atoms/Pagination";
 import { formatBDT, formatDateTime } from "~/utils/formatting";
 import { getOrderStatusColor, getOrderSourceColor } from "~/utils/badges";
 import {
@@ -32,15 +33,22 @@ import {
 export default function DashboardPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { stats, lowStockProducts, recentOrders, loading } = useAppSelector(
-    (state) => state.dashboard
-  );
+  const {
+    stats,
+    lowStockProducts,
+    lowStockMeta,
+    recentOrders,
+    recentOrdersMeta,
+    loading,
+  } = useAppSelector((state) => state.dashboard);
+  const [lowStockPage, setLowStockPage] = useState(1);
+  const [recentOrdersPage, setRecentOrdersPage] = useState(1);
 
   const loadData = useCallback(() => {
     dispatch(fetchDashboardStats());
-    dispatch(fetchLowStockProducts());
-    dispatch(fetchRecentOrders());
-  }, [dispatch]);
+    dispatch(fetchLowStockProducts({ page: lowStockPage, limit: 10 }));
+    dispatch(fetchRecentOrders({ page: recentOrdersPage, limit: 10 }));
+  }, [dispatch, lowStockPage, recentOrdersPage]);
 
   useEffect(() => {
     loadData();
@@ -105,7 +113,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm text-muted-foreground">Low Stock Items</p>
               <p className="text-[32px] font-bold leading-tight">
-                {lowStockProducts.length}
+                {lowStockMeta?.total ?? lowStockProducts.length}
               </p>
             </div>
           </CardContent>
@@ -199,66 +207,77 @@ export default function DashboardPage() {
               description="Orders will appear here once they are created."
             />
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentOrders.map((order) => (
-                    <TableRow
-                      key={order.id}
-                      className="cursor-pointer hover:bg-gray-50"
-                      onClick={() => navigate(`/orders/${order.id}`)}
-                    >
-                      <TableCell>
-                        <Link
-                          to={`/orders/${order.id}`}
-                          className="font-mono font-medium text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {order.invoiceId}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{order.customerName}</TableCell>
-                      <TableCell>{formatBDT(order.grandTotal)}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={getOrderStatusColor(order.status)}
-                        >
-                          {order.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={getOrderSourceColor(order.source)}
-                        >
-                          {order.source}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDateTime(order.createdAt)}
-                      </TableCell>
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {recentOrders.map((order) => (
+                      <TableRow
+                        key={order.id}
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => navigate(`/orders/${order.id}`)}
+                      >
+                        <TableCell>
+                          <Link
+                            to={`/orders/${order.id}`}
+                            className="font-mono font-medium text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {order.invoiceId}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{order.customerName}</TableCell>
+                        <TableCell>{formatBDT(order.grandTotal)}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={getOrderStatusColor(order.status)}
+                          >
+                            {order.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={getOrderSourceColor(order.source)}
+                          >
+                            {order.source}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDateTime(order.createdAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {recentOrdersMeta && (
+                <Pagination
+                  page={recentOrdersMeta.page}
+                  totalPages={recentOrdersMeta.totalPages}
+                  total={recentOrdersMeta.total}
+                  limit={recentOrdersMeta.limit}
+                  onPageChange={setRecentOrdersPage}
+                />
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Low Stock Products */}
-      {lowStockProducts.length > 0 && (
+      {(lowStockMeta?.total ?? lowStockProducts.length) > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Low Stock Products</CardTitle>
@@ -305,6 +324,15 @@ export default function DashboardPage() {
                 </TableBody>
               </Table>
             </div>
+            {lowStockMeta && (
+              <Pagination
+                page={lowStockMeta.page}
+                totalPages={lowStockMeta.totalPages}
+                total={lowStockMeta.total}
+                limit={lowStockMeta.limit}
+                onPageChange={setLowStockPage}
+              />
+            )}
           </CardContent>
         </Card>
       )}

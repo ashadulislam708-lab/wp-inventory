@@ -27,7 +27,7 @@ export interface Order {
   courierTrackingCode: string | null;
   qrCodeDataUrl: string | null;
   wcOrderId: string | null;
-  createdBy: string | null;
+  createdBy: { id: string; name: string; email: string } | null;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -67,11 +67,13 @@ export interface InvoiceData {
   date: string;
   courierName: string;
   trackingCode: string | null;
+  deliveryId: string | null;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
   items: {
     name: string;
+    variation: string | null;
     quantity: number;
     price: number;
   }[];

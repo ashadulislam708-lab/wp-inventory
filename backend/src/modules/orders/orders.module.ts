@@ -7,6 +7,7 @@ import { Product } from '../products/entities/product.entity.js';
 import { ProductVariation } from '../products/entities/product-variation.entity.js';
 import { StockAdjustmentLog } from '../products/entities/stock-adjustment-log.entity.js';
 import { InvoiceModule } from '../invoice/invoice.module.js';
+import { WooCommerceModule } from '../woocommerce/woocommerce.module.js';
 import { OrderController } from './controllers/order.controller.js';
 import { OrderService } from './services/order.service.js';
 import { OrderNoteService } from './services/order-note.service.js';
@@ -22,6 +23,7 @@ import { OrderNoteService } from './services/order-note.service.js';
             StockAdjustmentLog,
         ]),
         InvoiceModule,
+        WooCommerceModule,
     ],
     controllers: [OrderController],
     providers: [OrderService, OrderNoteService],

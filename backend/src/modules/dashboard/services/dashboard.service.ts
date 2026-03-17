@@ -6,6 +6,7 @@ import { Product } from '../../products/entities/product.entity.js';
 import { SyncLog } from '../../sync/entities/sync-log.entity.js';
 import { OrderStatusEnum } from '../../../shared/enums/order-status.enum.js';
 import { SyncLogStatusEnum } from '../../../shared/enums/sync-log-status.enum.js';
+import { PaginatedResponseDto } from '../../../shared/dtos/response.dto.js';
 
 @Injectable()
 export class DashboardService {
@@ -79,47 +80,55 @@ export class DashboardService {
     }
 
     /**
-     * Products with stock at or below low stock threshold
+     * Products with stock at or below low stock threshold (paginated)
      */
-    async getLowStockProducts() {
-        const products = await this.productRepository
+    async getLowStockProducts(page: number = 1, limit: number = 10) {
+        const [products, total] = await this.productRepository
             .createQueryBuilder('product')
             .where('product.deletedAt IS NULL')
             .andWhere('product.stockQuantity <= product.lowStockThreshold')
             .orderBy('product.stockQuantity', 'ASC')
-            .getMany();
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getManyAndCount();
 
-        return {
-            data: products.map((p) => ({
+        return new PaginatedResponseDto(
+            products.map((p) => ({
                 id: p.id,
                 name: p.name,
                 sku: p.sku,
                 stockQuantity: p.stockQuantity,
                 lowStockThreshold: p.lowStockThreshold,
             })),
-        };
+            page,
+            limit,
+            total,
+            'Low stock products retrieved successfully',
+        );
     }
 
     /**
-     * Last 10 orders with status badges
+     * Recent orders with pagination
      */
-    async getRecentOrders() {
-        const orders = await this.orderRepository.find({
-            order: { createdAt: 'DESC' },
-            take: 10,
-            select: [
-                'id',
-                'invoiceId',
-                'customerName',
-                'grandTotal',
-                'status',
-                'source',
-                'createdAt',
-            ],
-        });
+    async getRecentOrders(page: number = 1, limit: number = 10) {
+        const [orders, total] = await this.orderRepository
+            .createQueryBuilder('order')
+            .select([
+                'order.id',
+                'order.invoiceId',
+                'order.customerName',
+                'order.grandTotal',
+                'order.status',
+                'order.source',
+                'order.createdAt',
+            ])
+            .orderBy('order.createdAt', 'DESC')
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getManyAndCount();
 
-        return {
-            data: orders.map((o) => ({
+        return new PaginatedResponseDto(
+            orders.map((o) => ({
                 id: o.id,
                 invoiceId: o.invoiceId,
                 customerName: o.customerName,
@@ -128,6 +137,10 @@ export class DashboardService {
                 source: o.source,
                 createdAt: o.createdAt,
             })),
-        };
+            page,
+            limit,
+            total,
+            'Recent orders retrieved successfully',
+        );
     }
 }

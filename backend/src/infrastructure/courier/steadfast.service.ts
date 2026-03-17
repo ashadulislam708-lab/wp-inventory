@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 import { envConfigService } from '../../config/env-config.service.js';
+import { normalizeBDPhone } from '../../shared/utils/phone.util.js';
 
 export interface SteadfastCreateOrderRequest {
     invoice: string;
@@ -65,14 +66,27 @@ export class SteadfastService {
                 return null;
             }
 
+            // Normalize phone to 11-digit BD format required by Steadfast
+            const normalizedRequest = {
+                ...request,
+                recipient_phone: normalizeBDPhone(request.recipient_phone),
+            };
+
+            this.logger.log(
+                `Steadfast push: invoice=${request.invoice}, phone=${normalizedRequest.recipient_phone}`,
+            );
+
             const response =
                 await this.client.post<SteadfastCreateOrderResponse>(
                     '/create_order',
-                    request,
+                    normalizedRequest,
                 );
 
             if (response.data.status === 200 && response.data.consignment) {
                 const consignment = response.data.consignment;
+                this.logger.log(
+                    `Steadfast order created: invoice=${request.invoice}, consignmentId=${consignment.consignment_id}, trackingCode=${consignment.tracking_code}`,
+                );
                 return {
                     consignmentId: String(consignment.consignment_id),
                     trackingCode: consignment.tracking_code,
@@ -80,13 +94,12 @@ export class SteadfastService {
             }
 
             this.logger.error(
-                `Steadfast create order failed: ${response.data.message}`,
+                `Steadfast create order returned non-200: status=${response.data.status}, message=${response.data.message}, invoice=${request.invoice}`,
             );
             return null;
         } catch (error: any) {
             this.logger.error(
-                `Steadfast API error: ${error.message}`,
-                error.response?.data,
+                `Steadfast API error: invoice=${request.invoice}, httpStatus=${error.response?.status}, message=${error.message}, response=${JSON.stringify(error.response?.data)}`,
             );
             return null;
         }

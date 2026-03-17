@@ -114,7 +114,24 @@ export class ProductService {
             throw new NotFoundException(`Product with ID ${id} not found`);
         }
 
-        return product;
+        // Fetch recent stock history
+        const stockLogs = await this.stockLogRepository.find({
+            where: { productId: id },
+            relations: ['adjustedBy'],
+            order: { createdAt: 'DESC' },
+            take: 50,
+        });
+
+        const stockHistory = stockLogs.map((log) => ({
+            id: log.id,
+            previousQty: log.previousQty,
+            newQty: log.newQty,
+            reason: log.reason,
+            adjustedBy: log.adjustedBy?.name || 'System',
+            createdAt: log.createdAt,
+        }));
+
+        return { ...product, stockHistory };
     }
 
     /**
@@ -160,6 +177,7 @@ export class ProductService {
                     previousQty: previousQuantity,
                     newQty: newQuantity,
                     reason: dto.reason,
+                    note: dto.note ?? null,
                 });
                 await manager.save(StockAdjustmentLog, stockLog);
 
@@ -196,7 +214,6 @@ export class ProductService {
             .transaction(async (manager) => {
                 const variation = await manager.findOne(ProductVariation, {
                     where: { id: variationId },
-                    relations: ['product'],
                     lock: { mode: 'pessimistic_write' },
                 });
 
@@ -245,6 +262,7 @@ export class ProductService {
                     previousQty: previousQuantity,
                     newQty: newQuantity,
                     reason: dto.reason,
+                    note: dto.note ?? null,
                 });
                 await manager.save(StockAdjustmentLog, stockLog);
 

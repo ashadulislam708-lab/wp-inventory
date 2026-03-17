@@ -32,6 +32,9 @@ export const productService = {
 
   getCategories: () =>
     httpService.get<ProductCategory[]>("/categories"),
+
+  syncProduct: (id: string) =>
+    httpService.post<{ status: string }>(`/woocommerce/sync/products/${id}`, undefined, { timeout: 60000 }),
 };
 
 export const fetchProducts = createAsyncThunk(

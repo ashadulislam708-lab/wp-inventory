@@ -9,7 +9,9 @@ import {
 const initialState: DashboardState = {
   stats: null,
   lowStockProducts: [],
+  lowStockMeta: null,
   recentOrders: [],
+  recentOrdersMeta: null,
   loading: false,
   error: null,
 };
@@ -33,10 +35,12 @@ const dashboardSlice = createSlice({
         state.error = action.payload as string;
       })
       .addCase(fetchLowStockProducts.fulfilled, (state, action) => {
-        state.lowStockProducts = action.payload;
+        state.lowStockProducts = action.payload.data;
+        state.lowStockMeta = action.payload.meta;
       })
       .addCase(fetchRecentOrders.fulfilled, (state, action) => {
-        state.recentOrders = action.payload;
+        state.recentOrders = action.payload.data;
+        state.recentOrdersMeta = action.payload.meta;
       });
   },
 });

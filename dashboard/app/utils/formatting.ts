@@ -1,4 +1,5 @@
-export const formatBDT = (amount: number): string => {
+export const formatBDT = (amount: number | null | undefined): string => {
+  if (amount == null) return '0 BDT';
   return `${amount.toLocaleString("en-BD")} BDT`;
 };
 

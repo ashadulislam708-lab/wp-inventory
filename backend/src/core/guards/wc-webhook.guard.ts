@@ -30,8 +30,21 @@ export class WcWebhookGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
         const request = context.switchToHttp().getRequest();
 
+        // WooCommerce sends a ping request when creating/saving a webhook to verify the URL.
+        // The ping body only contains {"webhook_id":"..."} and may not include an HMAC signature.
+        // Detect ping by checking: no signature header AND body has only webhook_id.
         const signature = request.headers['x-wc-webhook-signature'] as string;
         if (!signature) {
+            const body = request.body;
+            const bodyKeys =
+                body && typeof body === 'object' ? Object.keys(body) : [];
+            if (bodyKeys.length === 1 && bodyKeys[0] === 'webhook_id') {
+                this.logger.log(
+                    `WC webhook ping received (webhook_id: ${body.webhook_id}) — allowing through`,
+                );
+                return true;
+            }
+
             this.logger.warn(
                 'WC webhook request rejected: missing X-WC-Webhook-Signature header',
             );

@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Param,
     Query,
     Req,
     HttpCode,
@@ -95,6 +96,17 @@ export class WooCommerceController {
     @HttpCode(HttpStatus.OK)
     async syncOrders() {
         return this.wooCommerceService.syncOrders();
+    }
+
+    /**
+     * Sync a single product from WooCommerce
+     * POST /api/woocommerce/sync/products/:id
+     */
+    @ApiBearerAuth()
+    @Post('sync/products/:id')
+    @HttpCode(HttpStatus.OK)
+    async syncSingleProduct(@Param('id') id: string) {
+        return this.wooCommerceService.syncSingleProduct(id);
     }
 
     /**

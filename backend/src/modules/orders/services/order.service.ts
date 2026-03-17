@@ -21,8 +21,10 @@ import { ShippingZoneEnum } from '../../../shared/enums/shipping-zone.enum.js';
 import { ShippingPartnerEnum } from '../../../shared/enums/shipping-partner.enum.js';
 import { SteadfastService } from '../../../infrastructure/courier/steadfast.service.js';
 import { InvoiceService } from '../../invoice/invoice.service.js';
+import { WooCommerceService } from '../../woocommerce/services/woocommerce.service.js';
 import { IJwtPayload } from '../../../shared/interfaces/jwt-payload.js';
 import type { ImportOrdersResponseDto } from '../dto/import-orders.dto.js';
+import { restoreOrderItemsStock } from '../../../shared/utils/stock-restoration.util.js';
 
 const SHIPPING_FEES: Record<ShippingZoneEnum, number> = {
     [ShippingZoneEnum.INSIDE_DHAKA]: 80,
@@ -48,6 +50,7 @@ export class OrderService {
         private readonly dataSource: DataSource,
         private readonly steadfastService: SteadfastService,
         private readonly invoiceService: InvoiceService,
+        private readonly wooCommerceService: WooCommerceService,
     ) {}
 
     /**
@@ -185,6 +188,10 @@ export class OrderService {
 
                 // 3. Process items: validate stock, decrement, calculate totals
                 const orderItems: Partial<OrderItem>[] = [];
+                const stockDecrementedProducts: {
+                    productId: string;
+                    variationId: string | null;
+                }[] = [];
                 let subtotal = 0;
 
                 for (const item of dto.items) {
@@ -193,12 +200,11 @@ export class OrderService {
                     let variationLabel: string | null = null;
 
                     if (item.variationId) {
-                        // Variation product
+                        // Variation product — load with lock only (no relations to avoid TypeORM lock+join issues)
                         const variation = await manager.findOne(
                             ProductVariation,
                             {
                                 where: { id: item.variationId },
-                                relations: ['product'],
                                 lock: { mode: 'pessimistic_write' },
                             },
                         );
@@ -220,7 +226,7 @@ export class OrderService {
                         variation.stockQuantity -= item.quantity;
                         await manager.save(ProductVariation, variation);
 
-                        // Also update parent product stock
+                        // Load and update parent product stock separately
                         const parentProduct = await manager.findOne(Product, {
                             where: { id: variation.productId },
                             lock: { mode: 'pessimistic_write' },
@@ -242,11 +248,15 @@ export class OrderService {
                             }),
                         );
 
+                        stockDecrementedProducts.push({
+                            productId: variation.productId,
+                            variationId: variation.id,
+                        });
+
                         unitPrice = Number(
                             variation.salePrice || variation.regularPrice || 0,
                         );
-                        productName =
-                            variation.product?.name || 'Unknown Product';
+                        productName = parentProduct?.name || 'Unknown Product';
                         const attrs = variation.attributes || {};
                         variationLabel =
                             Object.values(attrs).join(' / ') || null;
@@ -286,6 +296,11 @@ export class OrderService {
                             }),
                         );
 
+                        stockDecrementedProducts.push({
+                            productId: product.id,
+                            variationId: null,
+                        });
+
                         unitPrice = Number(
                             product.salePrice || product.regularPrice || 0,
                         );
@@ -303,6 +318,7 @@ export class OrderService {
                         quantity: item.quantity,
                         unitPrice,
                         totalPrice,
+                        stockDecremented: true,
                     });
                 }
 
@@ -345,25 +361,57 @@ export class OrderService {
 
                 // 7. Push to Steadfast (outside transaction - if it fails, order still created)
                 // We'll do this after the transaction commits
-                return { ...savedOrder, items: savedItems };
+                return {
+                    order: { ...savedOrder, items: savedItems },
+                    stockDecrementedProducts,
+                };
             })
-            .then(async (order) => {
-                // Push to Steadfast after transaction commits
-                const courierResult = await this.steadfastService.createOrder({
-                    invoice: order.invoiceId,
-                    recipient_name: order.customerName,
-                    recipient_phone: order.customerPhone,
-                    recipient_address: order.customerAddress,
-                    cod_amount: Number(order.grandTotal),
-                });
+            .then(async ({ order, stockDecrementedProducts: decremented }) => {
+                // Push to courier after transaction commits
+                try {
+                    if (
+                        order.shippingPartner === ShippingPartnerEnum.STEADFAST
+                    ) {
+                        const courierResult =
+                            await this.steadfastService.createOrder({
+                                invoice: order.invoiceId,
+                                recipient_name: order.customerName,
+                                recipient_phone: order.customerPhone,
+                                recipient_address: order.customerAddress,
+                                cod_amount: Number(order.grandTotal),
+                            });
 
-                if (courierResult) {
-                    await this.orderRepository.update(order.id, {
-                        courierConsignmentId: courierResult.consignmentId,
-                        courierTrackingCode: courierResult.trackingCode,
-                    });
-                    order.courierConsignmentId = courierResult.consignmentId;
-                    order.courierTrackingCode = courierResult.trackingCode;
+                        if (courierResult) {
+                            await this.orderRepository.update(order.id, {
+                                courierConsignmentId:
+                                    courierResult.consignmentId,
+                                courierTrackingCode: courierResult.trackingCode,
+                            });
+                            order.courierConsignmentId =
+                                courierResult.consignmentId;
+                            order.courierTrackingCode =
+                                courierResult.trackingCode;
+                        } else {
+                            this.logger.warn(
+                                `Steadfast push failed for order ${order.invoiceId}. Order created without consignment.`,
+                            );
+                        }
+                    }
+                } catch (err: any) {
+                    this.logger.error(
+                        `Post-transaction courier push failed for ${order.invoiceId}: ${err.message}`,
+                    );
+                }
+
+                // Push updated stock to WooCommerce (non-blocking)
+                for (const item of decremented) {
+                    this.wooCommerceService
+                        .pushStockToWc(item.productId, item.variationId)
+                        .catch((err) => {
+                            this.logger.error(
+                                `Failed to push stock to WC after order ${order.invoiceId} for product ${item.productId}: ${err.message}`,
+                            );
+                        });
                 }
 
                 return order;
@@ -387,65 +435,30 @@ export class OrderService {
 
         return this.dataSource
             .transaction(async (manager) => {
-                // 1. Restore old stock
+                // Track affected products for WC stock push after commit
+                const stockAffectedProducts: {
+                    productId: string;
+                    variationId: string | null;
+                }[] = [];
+
+                // Collect old items' product refs for WC sync
                 for (const oldItem of existingOrder.items) {
-                    if (oldItem.variationId) {
-                        const variation = await manager.findOne(
-                            ProductVariation,
-                            {
-                                where: { id: oldItem.variationId },
-                                lock: { mode: 'pessimistic_write' },
-                            },
-                        );
-                        if (variation) {
-                            const prevQty = variation.stockQuantity;
-                            variation.stockQuantity += oldItem.quantity;
-                            await manager.save(ProductVariation, variation);
-
-                            // Update parent product
-                            const product = await manager.findOne(Product, {
-                                where: { id: oldItem.productId! },
-                                lock: { mode: 'pessimistic_write' },
-                            });
-                            if (product) {
-                                product.stockQuantity += oldItem.quantity;
-                                await manager.save(Product, product);
-                            }
-
-                            await manager.save(
-                                manager.create(StockAdjustmentLog, {
-                                    productId: oldItem.productId!,
-                                    variationId: oldItem.variationId,
-                                    adjustedById: user.id,
-                                    previousQty: prevQty,
-                                    newQty: variation.stockQuantity,
-                                    reason: `Order Edited (Restored) - ${existingOrder.invoiceId}`,
-                                }),
-                            );
-                        }
-                    } else if (oldItem.productId) {
-                        const product = await manager.findOne(Product, {
-                            where: { id: oldItem.productId },
-                            lock: { mode: 'pessimistic_write' },
+                    if (oldItem.productId && oldItem.stockDecremented) {
+                        stockAffectedProducts.push({
+                            productId: oldItem.productId,
+                            variationId: oldItem.variationId || null,
                         });
-                        if (product) {
-                            const prevQty = product.stockQuantity;
-                            product.stockQuantity += oldItem.quantity;
-                            await manager.save(Product, product);
-
-                            await manager.save(
-                                manager.create(StockAdjustmentLog, {
-                                    productId: product.id,
-                                    variationId: null,
-                                    adjustedById: user.id,
-                                    previousQty: prevQty,
-                                    newQty: product.stockQuantity,
-                                    reason: `Order Edited (Restored) - ${existingOrder.invoiceId}`,
-                                }),
-                            );
-                        }
                     }
                 }
+
+                // 1. Restore old stock (skips items where stockDecremented is false)
+                await restoreOrderItemsStock(
+                    manager,
+                    existingOrder.items,
+                    user.id,
+                    'Order Edited (Restored)',
+                    existingOrder.invoiceId,
+                );
 
                 // 2. Remove old order items
                 await manager.delete(OrderItem, { orderId: id });
@@ -461,11 +474,11 @@ export class OrderService {
                     let variationLabel: string | null = null;
 
                     if (item.variationId) {
+                        // Load with lock only (no relations to avoid TypeORM lock+join issues)
                         const variation = await manager.findOne(
                             ProductVariation,
                             {
                                 where: { id: item.variationId },
-                                relations: ['product'],
                                 lock: { mode: 'pessimistic_write' },
                             },
                         );
@@ -509,8 +522,7 @@ export class OrderService {
                         unitPrice = Number(
                             variation.salePrice || variation.regularPrice || 0,
                         );
-                        productName =
-                            variation.product?.name || 'Unknown Product';
+                        productName = parentProduct?.name || 'Unknown Product';
                         const attrs = variation.attributes || {};
                         variationLabel =
                             Object.values(attrs).join(' / ') || null;
@@ -565,6 +577,12 @@ export class OrderService {
                         quantity: item.quantity,
                         unitPrice,
                         totalPrice,
+                        stockDecremented: true,
+                    });
+
+                    stockAffectedProducts.push({
+                        productId: item.productId,
+                        variationId: item.variationId || null,
                     });
                 }
 
@@ -588,48 +606,79 @@ export class OrderService {
                     await manager.save(OrderItem, orderItem);
                 }
 
-                return manager.findOne(Order, {
+                const updatedOrder = await manager.findOne(Order, {
                     where: { id },
                     relations: ['items'],
                 });
+
+                return { order: updatedOrder, stockAffectedProducts };
             })
-            .then(async (order) => {
+            .then(async ({ order, stockAffectedProducts: affected }) => {
                 if (!order) {
                     throw new NotFoundException(
                         `Order ${id} not found after update`,
                     );
                 }
 
-                // Cancel old courier and re-push if order had a consignment
-                if (existingOrder.courierConsignmentId) {
-                    await this.steadfastService.cancelOrder(
-                        existingOrder.courierConsignmentId,
+                // Cancel old courier and re-push if shipping partner is Steadfast
+                try {
+                    if (
+                        order.shippingPartner === ShippingPartnerEnum.STEADFAST
+                    ) {
+                        if (existingOrder.courierConsignmentId) {
+                            await this.steadfastService.cancelOrder(
+                                existingOrder.courierConsignmentId,
+                            );
+                        }
+
+                        const courierResult =
+                            await this.steadfastService.createOrder({
+                                invoice: order.invoiceId,
+                                recipient_name: order.customerName,
+                                recipient_phone: order.customerPhone,
+                                recipient_address: order.customerAddress,
+                                cod_amount: Number(order.grandTotal),
+                            });
+
+                        if (courierResult) {
+                            await this.orderRepository.update(order.id, {
+                                courierConsignmentId:
+                                    courierResult.consignmentId,
+                                courierTrackingCode: courierResult.trackingCode,
+                            });
+                            order.courierConsignmentId =
+                                courierResult.consignmentId;
+                            order.courierTrackingCode =
+                                courierResult.trackingCode;
+                        } else {
+                            await this.orderRepository.update(order.id, {
+                                courierConsignmentId: null,
+                                courierTrackingCode: null,
+                            });
+                            order.courierConsignmentId = null;
+                            order.courierTrackingCode = null;
+                        }
+                    }
+                } catch (err: any) {
+                    this.logger.error(
+                        `Post-transaction courier push failed for edit ${order.invoiceId}: ${err.message}`,
                     );
                 }
 
-                // Re-push to Steadfast
-                const courierResult = await this.steadfastService.createOrder({
-                    invoice: order.invoiceId,
-                    recipient_name: order.customerName,
-                    recipient_phone: order.customerPhone,
-                    recipient_address: order.customerAddress,
-                    cod_amount: Number(order.grandTotal),
-                });
-
-                if (courierResult) {
-                    await this.orderRepository.update(order.id, {
-                        courierConsignmentId: courierResult.consignmentId,
-                        courierTrackingCode: courierResult.trackingCode,
-                    });
-                    order.courierConsignmentId = courierResult.consignmentId;
-                    order.courierTrackingCode = courierResult.trackingCode;
-                } else {
-                    await this.orderRepository.update(order.id, {
-                        courierConsignmentId: null,
-                        courierTrackingCode: null,
-                    });
-                    order.courierConsignmentId = null;
-                    order.courierTrackingCode = null;
+                // Push updated stock to WooCommerce (non-blocking)
+                // Deduplicate by productId+variationId
+                const seen = new Set<string>();
+                for (const item of affected) {
+                    const key = `${item.productId}:${item.variationId}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    this.wooCommerceService
+                        .pushStockToWc(item.productId, item.variationId)
+                        .catch((err) => {
+                            this.logger.error(
+                                `Failed to push stock to WC after edit ${order.invoiceId} for product ${item.productId}: ${err.message}`,
+                            );
+                        });
                 }
 
                 return order;
@@ -688,8 +737,12 @@ export class OrderService {
             (dto.shippingZone !== undefined &&
                 dto.shippingZone !== order.shippingZone);
 
-        // Re-push to Steadfast if consignment details changed
-        if (consignmentDetailsChanged && order.courierConsignmentId) {
+        // Re-push to Steadfast if consignment details changed and partner is Steadfast
+        if (
+            consignmentDetailsChanged &&
+            order.courierConsignmentId &&
+            order.shippingPartner === ShippingPartnerEnum.STEADFAST
+        ) {
             // Cancel old consignment
             await this.steadfastService.cancelOrder(order.courierConsignmentId);
 
@@ -757,8 +810,33 @@ export class OrderService {
             dto.status === OrderStatusEnum.RETURNED
         ) {
             // Restore stock for all items
-            await this.restoreOrderStock(order, user, dto.status);
+            const reasonText =
+                dto.status === OrderStatusEnum.CANCELLED
+                    ? 'Order Cancelled'
+                    : 'Order Returned';
+            await this.dataSource.transaction(async (manager) => {
+                await restoreOrderItemsStock(
+                    manager,
+                    order.items,
+                    user.id,
+                    reasonText,
+                    order.invoiceId,
+                );
+            });
             result.stockRestored = true;
+
+            // Push restored stock to WooCommerce (non-blocking)
+            for (const item of order.items) {
+                if (item.productId) {
+                    this.wooCommerceService
+                        .pushStockToWc(item.productId, item.variationId || null)
+                        .catch((err) => {
+                            this.logger.error(
+                                `Failed to push stock to WC after ${dto.status} for product ${item.productId}: ${err.message}`,
+                            );
+                        });
+                }
+            }
 
             // Cancel courier for CANCELLED only (not RETURNED)
             if (
@@ -804,7 +882,7 @@ export class OrderService {
     }
 
     /**
-     * Retry Steadfast courier push
+     * Retry courier push
      */
     async retryCourier(id: string) {
         const order = await this.orderRepository.findOne({
@@ -813,6 +891,12 @@ export class OrderService {
 
         if (!order) {
             throw new NotFoundException(`Order with ID ${id} not found`);
+        }
+
+        if (order.shippingPartner !== ShippingPartnerEnum.STEADFAST) {
+            throw new BadRequestException(
+                `Courier retry is only supported for Steadfast orders. This order uses: ${order.shippingPartner}`,
+            );
         }
 
         if (order.courierConsignmentId) {
@@ -1039,77 +1123,6 @@ export class OrderService {
 
         result.push(current);
         return result;
-    }
-
-    /**
-     * Restore stock for all items in an order
-     */
-    private async restoreOrderStock(
-        order: Order,
-        user: IJwtPayload,
-        reason: OrderStatusEnum,
-    ): Promise<void> {
-        const reasonText =
-            reason === OrderStatusEnum.CANCELLED
-                ? 'Order Cancelled'
-                : 'Order Returned';
-
-        await this.dataSource.transaction(async (manager) => {
-            for (const item of order.items) {
-                if (item.variationId) {
-                    const variation = await manager.findOne(ProductVariation, {
-                        where: { id: item.variationId },
-                        lock: { mode: 'pessimistic_write' },
-                    });
-                    if (variation) {
-                        const prevQty = variation.stockQuantity;
-                        variation.stockQuantity += item.quantity;
-                        await manager.save(ProductVariation, variation);
-
-                        const product = await manager.findOne(Product, {
-                            where: { id: item.productId! },
-                            lock: { mode: 'pessimistic_write' },
-                        });
-                        if (product) {
-                            product.stockQuantity += item.quantity;
-                            await manager.save(Product, product);
-                        }
-
-                        await manager.save(
-                            manager.create(StockAdjustmentLog, {
-                                productId: item.productId!,
-                                variationId: item.variationId,
-                                adjustedById: user.id,
-                                previousQty: prevQty,
-                                newQty: variation.stockQuantity,
-                                reason: `${reasonText} - ${order.invoiceId}`,
-                            }),
-                        );
-                    }
-                } else if (item.productId) {
-                    const product = await manager.findOne(Product, {
-                        where: { id: item.productId },
-                        lock: { mode: 'pessimistic_write' },
-                    });
-                    if (product) {
-                        const prevQty = product.stockQuantity;
-                        product.stockQuantity += item.quantity;
-                        await manager.save(Product, product);
-
-                        await manager.save(
-                            manager.create(StockAdjustmentLog, {
-                                productId: product.id,
-                                variationId: null,
-                                adjustedById: user.id,
-                                previousQty: prevQty,
-                                newQty: product.stockQuantity,
-                                reason: `${reasonText} - ${order.invoiceId}`,
-                            }),
-                        );
-                    }
-                }
-            }
-        });
     }
 
     /**

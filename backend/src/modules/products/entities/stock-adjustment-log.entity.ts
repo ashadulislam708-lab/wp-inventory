@@ -47,6 +47,9 @@ export class StockAdjustmentLog {
     @Column({ type: 'varchar', length: 255 })
     reason: string;
 
+    @Column({ type: 'varchar', length: 500, nullable: true })
+    note: string | null;
+
     @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
     createdAt: Date;
 }

@@ -38,8 +38,17 @@ import {
   ProductTypeEnum,
 } from "~/enums";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "~/components/ui/dialog";
+import {
   ArrowLeft,
+  ChevronRight,
   Loader2,
+  Minus,
   Plus,
   Trash2,
   Search,
@@ -54,6 +63,7 @@ interface CartItem {
   variationId: string | null;
   productName: string;
   variationLabel: string;
+  imageUrl: string | null;
   unitPrice: number;
   quantity: number;
   maxStock: number;
@@ -80,6 +90,7 @@ export default function CreateOrderPage() {
     null
   );
   const [loadingProduct, setLoadingProduct] = useState(false);
+  const [pendingProductName, setPendingProductName] = useState("");
 
   // Cart
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -149,12 +160,9 @@ export default function CreateOrderPage() {
 
   const handleSelectProduct = useCallback(
     async (product: Product) => {
-      setSearchQuery("");
-      setSearchResults([]);
-      setSearchTotal(0);
-      setSearchPage(1);
-
       if (product.type === ProductTypeEnum.VARIABLE) {
+        // Variable product — open dialog, keep search visible underneath
+        setPendingProductName(product.name);
         setLoadingProduct(true);
         try {
           const detail = await productService.getProductById(product.id);
@@ -165,7 +173,12 @@ export default function CreateOrderPage() {
           setLoadingProduct(false);
         }
       } else {
-        // Simple product - add directly
+        // Simple product — clear search and add directly
+        setSearchQuery("");
+        setSearchResults([]);
+        setSearchTotal(0);
+        setSearchPage(1);
+
         const existing = cartItems.find(
           (i) => i.productId === product.id && !i.variationId
         );
@@ -184,6 +197,7 @@ export default function CreateOrderPage() {
             variationId: null,
             productName: product.name,
             variationLabel: "",
+            imageUrl: product.imageUrl,
             unitPrice: product.salePrice ?? product.regularPrice,
             quantity: 1,
             maxStock: product.stockQuantity,
@@ -220,12 +234,18 @@ export default function CreateOrderPage() {
           variationId: variation.id,
           productName: selectedProduct.name,
           variationLabel: attrLabel,
+          imageUrl: variation.imageUrl || selectedProduct.imageUrl,
           unitPrice: variation.salePrice ?? variation.regularPrice,
           quantity: 1,
           maxStock: variation.stockQuantity,
         },
       ]);
       setSelectedProduct(null);
+      setPendingProductName("");
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchTotal(0);
+      setSearchPage(1);
     },
     [selectedProduct, cartItems]
   );
@@ -355,18 +375,35 @@ export default function CreateOrderPage() {
                             <div className="h-8 w-8 rounded bg-gray-100" />
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {product.name}
-                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium truncate">
+                                {product.name}
+                              </p>
+                              {product.type === ProductTypeEnum.VARIABLE && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] px-1.5 py-0 shrink-0"
+                                >
+                                  Variable
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground">
                               {product.sku} | Stock: {product.stockQuantity}
                             </p>
                           </div>
-                          <span className="text-sm font-medium">
-                            {formatBDT(
-                              product.salePrice ?? product.regularPrice
-                            )}
-                          </span>
+                          {product.type === ProductTypeEnum.VARIABLE ? (
+                            <span className="text-xs text-violet-600 flex items-center gap-0.5 shrink-0">
+                              Select variant
+                              <ChevronRight className="h-3 w-3" />
+                            </span>
+                          ) : (
+                            <span className="text-sm font-medium shrink-0">
+                              {formatBDT(
+                                product.salePrice ?? product.regularPrice
+                              )}
+                            </span>
+                          )}
                         </button>
                       ))}
                       {/* Loading indicator when refining search with existing results */}
@@ -408,57 +445,147 @@ export default function CreateOrderPage() {
                 </div>
               )}
 
-              {/* Variation selector */}
-              {loadingProduct && (
-                <p className="text-sm text-muted-foreground text-center py-2">
-                  Loading variations...
-                </p>
-              )}
-              {selectedProduct && (
-                <div className="rounded-md border p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">
-                      Select variation for: {selectedProduct.name}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedProduct(null)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                  {selectedProduct.variations.map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      className="flex w-full items-center justify-between rounded border p-2 text-left hover:bg-accent"
-                      onClick={() => handleSelectVariation(v)}
-                      disabled={v.stockQuantity <= 0}
-                    >
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(v.attributes).map(([k, val]) => (
-                          <Badge key={k} variant="secondary" className="text-xs">
-                            {k}: {val}
-                          </Badge>
-                        ))}
+              {/* Variation selector dialog */}
+              <Dialog
+                open={loadingProduct || selectedProduct !== null}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setSelectedProduct(null);
+                    setPendingProductName("");
+                  }
+                }}
+              >
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <div className="flex items-center gap-4">
+                      {(selectedProduct?.imageUrl) ? (
+                        <img
+                          src={selectedProduct.imageUrl}
+                          alt={selectedProduct.name}
+                          className="h-14 w-14 rounded-lg object-cover border"
+                        />
+                      ) : (
+                        <div className="h-14 w-14 rounded-lg bg-gray-100 border" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <DialogTitle className="text-base truncate">
+                          {selectedProduct?.name ?? pendingProductName}
+                        </DialogTitle>
+                        <DialogDescription className="mt-1">
+                          This product has multiple options. Pick one to add to the order.
+                        </DialogDescription>
                       </div>
-                      <div className="text-right text-sm">
-                        <p>{formatBDT(v.salePrice ?? v.regularPrice)}</p>
-                        <p
-                          className={
-                            v.stockQuantity <= 0
-                              ? "text-red-500 text-xs"
-                              : "text-muted-foreground text-xs"
-                          }
-                        >
-                          Stock: {v.stockQuantity}
-                        </p>
+                    </div>
+                  </DialogHeader>
+
+                  {loadingProduct ? (
+                    <div className="flex flex-col items-center justify-center py-10">
+                      <Loader2 className="h-7 w-7 animate-spin text-indigo-600" />
+                      <span className="mt-3 text-sm text-muted-foreground">
+                        Loading options...
+                      </span>
+                    </div>
+                  ) : selectedProduct ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Available options ({selectedProduct.variations.length})
+                      </p>
+                      <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                        {selectedProduct.variations.map((v) => {
+                          const inCart = cartItems.some(
+                            (i) =>
+                              i.productId === selectedProduct.id &&
+                              i.variationId === v.id
+                          );
+                          const outOfStock = v.stockQuantity <= 0;
+                          const disabled = outOfStock || inCart;
+
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              className={`group flex w-full items-center gap-3 rounded-lg border-2 p-3 text-left transition-all ${
+                                disabled
+                                  ? "opacity-50 cursor-not-allowed border-gray-200 bg-gray-50"
+                                  : "border-gray-200 hover:border-indigo-400 hover:bg-indigo-50/50 active:scale-[0.99]"
+                              }`}
+                              onClick={() => handleSelectVariation(v)}
+                              disabled={disabled}
+                            >
+                              {/* Radio-style indicator */}
+                              <div
+                                className={`h-4 w-4 shrink-0 rounded-full border-2 transition-colors ${
+                                  disabled
+                                    ? "border-gray-300"
+                                    : "border-gray-400 group-hover:border-indigo-500"
+                                }`}
+                              />
+
+                              {/* Variation image */}
+                              {v.imageUrl && (
+                                <img
+                                  src={v.imageUrl}
+                                  alt=""
+                                  className="h-9 w-9 rounded object-cover shrink-0"
+                                />
+                              )}
+
+                              {/* Attributes */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap gap-1">
+                                  {Object.entries(v.attributes).map(
+                                    ([k, val]) => (
+                                      <span
+                                        key={k}
+                                        className="text-sm font-medium"
+                                      >
+                                        {val}
+                                        {Object.keys(v.attributes).indexOf(k) <
+                                        Object.keys(v.attributes).length - 1
+                                          ? " / "
+                                          : ""}
+                                      </span>
+                                    )
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {Object.entries(v.attributes)
+                                    .map(([k, val]) => `${k}: ${val}`)
+                                    .join(" · ")}
+                                </p>
+                              </div>
+
+                              {/* Price & stock */}
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-semibold">
+                                  {formatBDT(v.salePrice ?? v.regularPrice)}
+                                </p>
+                                <p
+                                  className={`text-xs ${
+                                    outOfStock
+                                      ? "text-red-500 font-medium"
+                                      : inCart
+                                        ? "text-indigo-600 font-medium"
+                                        : v.stockQuantity <= 5
+                                          ? "text-amber-600"
+                                          : "text-muted-foreground"
+                                  }`}
+                                >
+                                  {outOfStock
+                                    ? "Out of stock"
+                                    : inCart
+                                      ? "Already in cart"
+                                      : `Stock: ${v.stockQuantity}`}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+                    </div>
+                  ) : null}
+                </DialogContent>
+              </Dialog>
 
               {/* Cart */}
               {cartItems.length > 0 && (
@@ -476,29 +603,74 @@ export default function CreateOrderPage() {
                       {cartItems.map((item, index) => (
                         <TableRow key={`${item.productId}-${item.variationId}`}>
                           <TableCell>
-                            <p className="text-sm font-medium">
-                              {item.productName}
-                            </p>
-                            {item.variationLabel && (
-                              <p className="text-xs text-muted-foreground">
-                                {item.variationLabel}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-3">
+                              {item.imageUrl ? (
+                                <img
+                                  src={item.imageUrl}
+                                  alt={item.productName}
+                                  className="h-10 w-10 rounded object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="h-10 w-10 rounded bg-gray-100 flex-shrink-0" />
+                              )}
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {item.productName}
+                                </p>
+                                {item.variationLabel && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {item.variationLabel}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={item.maxStock}
-                              value={item.quantity}
-                              onChange={(e) =>
-                                handleQuantityChange(
-                                  index,
-                                  parseInt(e.target.value) || 1
-                                )
-                              }
-                              className="w-20"
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() =>
+                                  handleQuantityChange(
+                                    index,
+                                    item.quantity - 1
+                                  )
+                                }
+                                disabled={item.quantity <= 1}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={item.maxStock}
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value);
+                                  if (!isNaN(val)) {
+                                    handleQuantityChange(index, val);
+                                  }
+                                }}
+                                className="w-14 text-center"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() =>
+                                  handleQuantityChange(
+                                    index,
+                                    item.quantity + 1
+                                  )
+                                }
+                                disabled={item.quantity >= item.maxStock}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium">
                             {formatBDT(item.unitPrice * item.quantity)}

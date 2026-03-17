@@ -22,6 +22,7 @@ import { ShippingZoneEnum } from '../../../shared/enums/shipping-zone.enum.js';
 import { ShippingPartnerEnum } from '../../../shared/enums/shipping-partner.enum.js';
 import { SteadfastService } from '../../../infrastructure/courier/steadfast.service.js';
 import { envConfigService } from '../../../config/env-config.service.js';
+import { restoreOrderItemsStock } from '../../../shared/utils/stock-restoration.util.js';
 
 const WC_STATUS_MAP: Record<string, OrderStatusEnum> = {
     pending: OrderStatusEnum.PENDING,
@@ -111,6 +112,14 @@ export class WooCommerceService {
         const wcId = body.id;
         if (!wcId) {
             return { status: 'skipped', reason: 'No product ID' };
+        }
+
+        // Skip variation-type products — they are children of variable products, not standalone
+        if (body.type === 'variation') {
+            this.logger.debug(
+                `Skipping webhook for variation-type product wcId ${wcId}`,
+            );
+            return { status: 'skipped', reason: 'Variation type product' };
         }
 
         // Check deduplication (5-second window)
@@ -214,6 +223,69 @@ export class WooCommerceService {
             const newStatus =
                 WC_STATUS_MAP[body.status] || OrderStatusEnum.PENDING;
             if (existing.status !== newStatus) {
+                // Handle stock restoration for CANCELLED/RETURNED transitions
+                const isCancelOrReturn =
+                    newStatus === OrderStatusEnum.CANCELLED ||
+                    newStatus === OrderStatusEnum.RETURNED;
+                const wasAlreadyCancelledOrReturned =
+                    existing.status === OrderStatusEnum.CANCELLED ||
+                    existing.status === OrderStatusEnum.RETURNED;
+
+                if (isCancelOrReturn && !wasAlreadyCancelledOrReturned) {
+                    // Load order with items for stock restoration
+                    const orderWithItems = await this.orderRepository.findOne({
+                        where: { id: existing.id },
+                        relations: ['items'],
+                    });
+
+                    if (orderWithItems && orderWithItems.items?.length > 0) {
+                        const reasonText =
+                            newStatus === OrderStatusEnum.CANCELLED
+                                ? 'Order Cancelled'
+                                : 'Order Returned';
+
+                        await this.dataSource.transaction(async (manager) => {
+                            await restoreOrderItemsStock(
+                                manager,
+                                orderWithItems.items,
+                                null, // system action (WC webhook)
+                                reasonText,
+                                orderWithItems.invoiceId,
+                            );
+                        });
+
+                        // Push restored stock to WC (non-blocking)
+                        for (const item of orderWithItems.items) {
+                            if (item.productId) {
+                                this.pushStockToWc(
+                                    item.productId,
+                                    item.variationId || null,
+                                ).catch((err) => {
+                                    this.logger.error(
+                                        `Failed to push stock to WC after WC ${reasonText} for product ${item.productId}: ${err.message}`,
+                                    );
+                                });
+                            }
+                        }
+
+                        // Cancel courier for CANCELLED only (not RETURNED)
+                        if (
+                            newStatus === OrderStatusEnum.CANCELLED &&
+                            orderWithItems.courierConsignmentId
+                        ) {
+                            this.steadfastService
+                                .cancelOrder(
+                                    orderWithItems.courierConsignmentId,
+                                )
+                                .catch((err) => {
+                                    this.logger.error(
+                                        `Failed to cancel Steadfast consignment for WC order ${orderWithItems.invoiceId}: ${err.message}`,
+                                    );
+                                });
+                        }
+                    }
+                }
+
                 await this.orderRepository.update(existing.id, {
                     status: newStatus,
                 });
@@ -268,6 +340,17 @@ export class WooCommerceService {
                 if (!products || products.length === 0) break;
 
                 for (const wcProduct of products) {
+                    // Skip product types that shouldn't be standalone products
+                    if (
+                        wcProduct.type &&
+                        wcProduct.type !== 'simple' &&
+                        wcProduct.type !== 'variable'
+                    ) {
+                        this.logger.debug(
+                            `Skipping product wcId ${wcProduct.id} with unsupported type: ${wcProduct.type}`,
+                        );
+                        continue;
+                    }
                     try {
                         const result = await this.upsertProduct(wcProduct);
                         if (result === 'created') imported++;
@@ -307,6 +390,53 @@ export class WooCommerceService {
      */
     async syncProducts() {
         return this.importProducts();
+    }
+
+    /**
+     * Sync a single product from WooCommerce by local product UUID
+     */
+    async syncSingleProduct(
+        productId: string,
+    ): Promise<{ status: 'created' | 'updated' }> {
+        const product = await this.productRepository.findOne({
+            where: { id: productId },
+        });
+
+        if (!product) {
+            throw new BadRequestException('Product not found');
+        }
+
+        const client = this.getWcClient();
+
+        try {
+            const response = await client.get(`/products/${product.wcId}`);
+            const wcProduct = response.data;
+
+            const result = await this.upsertProduct(wcProduct);
+
+            await this.logSync(
+                SyncDirectionEnum.INBOUND,
+                'product',
+                productId,
+                SyncLogStatusEnum.SUCCESS,
+                { wcId: product.wcId },
+                null,
+            );
+
+            return { status: result };
+        } catch (error: any) {
+            await this.logSync(
+                SyncDirectionEnum.INBOUND,
+                'product',
+                productId,
+                SyncLogStatusEnum.FAILED,
+                { wcId: product.wcId },
+                error.message,
+            );
+            throw new BadRequestException(
+                `Failed to sync product: ${error.message}`,
+            );
+        }
     }
 
     /**
@@ -472,8 +602,24 @@ export class WooCommerceService {
                     {
                         stock_quantity: variation.stockQuantity,
                         manage_stock: true,
+                        stock_status: this.getStockStatus(
+                            variation.stockQuantity,
+                        ),
                     },
                 );
+
+                // Update parent product stock_status on WC (manage_stock: false for variable products)
+                const allVariations = await this.variationRepository.find({
+                    where: { productId: variation.product.id },
+                });
+                const totalVariationStock = allVariations.reduce(
+                    (sum, v) => sum + v.stockQuantity,
+                    0,
+                );
+                await client.put(`/products/${wcProductId}`, {
+                    stock_status: this.getStockStatus(totalVariationStock),
+                    manage_stock: false,
+                });
 
                 // Update wcLastSyncedAt for dedup
                 await this.variationRepository.update(variationId, {
@@ -516,6 +662,7 @@ export class WooCommerceService {
                 await client.put(`/products/${product.wcId}`, {
                     stock_quantity: product.stockQuantity,
                     manage_stock: true,
+                    stock_status: this.getStockStatus(product.stockQuantity),
                 });
 
                 // Update syncStatus and wcLastSyncedAt for dedup
@@ -542,6 +689,7 @@ export class WooCommerceService {
         } catch (error: any) {
             this.logger.error(
                 `Failed to push stock to WC for product ${productId}${variationId ? ` variation ${variationId}` : ''}: ${error.message}`,
+                error.response?.data ? JSON.stringify(error.response.data) : '',
             );
 
             // Mark product sync status as ERROR
@@ -606,6 +754,9 @@ export class WooCommerceService {
                                     {
                                         stock_quantity: variation.stockQuantity,
                                         manage_stock: true,
+                                        stock_status: this.getStockStatus(
+                                            variation.stockQuantity,
+                                        ),
                                     },
                                 );
 
@@ -636,16 +787,32 @@ export class WooCommerceService {
                             }
                         }
 
-                        // Also push parent product total stock
+                        // Variable products: manage stock per-variation, not at parent level
+                        const totalVariationStock = product.variations.reduce(
+                            (sum, v) => sum + v.stockQuantity,
+                            0,
+                        );
+
+                        // Fix local parent stock if mismatched
+                        if (product.stockQuantity !== totalVariationStock) {
+                            await this.productRepository.update(product.id, {
+                                stockQuantity: totalVariationStock,
+                            });
+                        }
+
                         await client.put(`/products/${product.wcId}`, {
-                            stock_quantity: product.stockQuantity,
-                            manage_stock: true,
+                            stock_status:
+                                this.getStockStatus(totalVariationStock),
+                            manage_stock: false,
                         });
                     } else {
                         // Simple product — push stock directly
                         await client.put(`/products/${product.wcId}`, {
                             stock_quantity: product.stockQuantity,
                             manage_stock: true,
+                            stock_status: this.getStockStatus(
+                                product.stockQuantity,
+                            ),
                         });
                     }
 
@@ -691,10 +858,22 @@ export class WooCommerceService {
     // Private helper methods
     // ============================
 
+    private getStockStatus(quantity: number): 'instock' | 'outofstock' {
+        return quantity > 0 ? 'instock' : 'outofstock';
+    }
+
     private async upsertProduct(
         wcProduct: any,
     ): Promise<'created' | 'updated'> {
         const wcId = wcProduct.id;
+
+        // Skip variation-type products — they are child resources, not standalone products
+        if (wcProduct.type === 'variation') {
+            this.logger.debug(
+                `Skipping variation-type product wcId ${wcId} — not a standalone product`,
+            );
+            return 'updated';
+        }
 
         // Upsert category if present
         let categoryId: string | null = null;
@@ -767,68 +946,108 @@ export class WooCommerceService {
             result = 'created';
         }
 
-        // Handle variations
-        if (isVariable && wcProduct.variations) {
-            // Fetch variations from WC if only IDs provided
-            const variationData = wcProduct.variation_data || [];
-            if (
-                variationData.length === 0 &&
-                wcProduct.variations.length > 0 &&
-                typeof wcProduct.variations[0] === 'number'
-            ) {
-                try {
-                    const client = this.getWcClient();
-                    for (const varId of wcProduct.variations) {
-                        const response = await client.get(
-                            `/products/${wcId}/variations/${varId}`,
+        // Handle variations for variable products
+        if (isVariable) {
+            let variationData: any[] = wcProduct.variation_data || [];
+
+            // If no pre-loaded variation data, fetch from WC API
+            if (variationData.length === 0) {
+                // Check if wcProduct.variations contains full objects (some WC configs embed them)
+                if (
+                    wcProduct.variations &&
+                    wcProduct.variations.length > 0 &&
+                    typeof wcProduct.variations[0] === 'object' &&
+                    wcProduct.variations[0] !== null &&
+                    wcProduct.variations[0].id
+                ) {
+                    variationData = wcProduct.variations;
+                } else {
+                    // Fetch all variations via batch endpoint (paginated)
+                    try {
+                        const client = this.getWcClient();
+                        let varPage = 1;
+                        const varPerPage = 100;
+
+                        while (true) {
+                            const varResponse = await client.get(
+                                `/products/${wcId}/variations`,
+                                {
+                                    params: {
+                                        page: varPage,
+                                        per_page: varPerPage,
+                                    },
+                                },
+                            );
+                            const batch = varResponse.data;
+                            if (!batch || batch.length === 0) break;
+
+                            variationData.push(...batch);
+
+                            if (batch.length < varPerPage) break;
+                            varPage++;
+                        }
+                    } catch (error: any) {
+                        this.logger.error(
+                            `Failed to fetch variations for product wcId ${wcId}: ${error.message}`,
                         );
-                        variationData.push(response.data);
                     }
-                } catch {
-                    // Skip variation import on failure
                 }
             }
 
-            for (const wcVar of variationData) {
-                const existingVar = await this.variationRepository.findOne({
-                    where: { wcId: wcVar.id },
-                });
+            if (variationData.length > 0) {
+                for (const wcVar of variationData) {
+                    const existingVar = await this.variationRepository.findOne({
+                        where: { wcId: wcVar.id },
+                    });
 
-                const attrs: Record<string, string> = {};
-                if (wcVar.attributes) {
-                    for (const attr of wcVar.attributes) {
-                        attrs[attr.name] = attr.option;
+                    const attrs: Record<string, string> = {};
+                    if (wcVar.attributes) {
+                        for (const attr of wcVar.attributes) {
+                            attrs[attr.name] = attr.option;
+                        }
+                    }
+
+                    const varData: Partial<ProductVariation> = {
+                        productId: existing.id,
+                        sku: wcVar.sku || null,
+                        attributes: attrs,
+                        regularPrice: wcVar.regular_price
+                            ? parseFloat(wcVar.regular_price)
+                            : null,
+                        salePrice: wcVar.sale_price
+                            ? parseFloat(wcVar.sale_price)
+                            : null,
+                        imageUrl: wcVar.image?.src || null,
+                        wcId: wcVar.id,
+                        wcLastSyncedAt: new Date(),
+                    };
+
+                    if (existingVar) {
+                        // Update content, NOT stock
+                        await this.variationRepository.update(
+                            existingVar.id,
+                            varData,
+                        );
+                    } else {
+                        const newVar = this.variationRepository.create({
+                            ...varData,
+                            stockQuantity: wcVar.stock_quantity || 0,
+                        });
+                        await this.variationRepository.save(newVar);
                     }
                 }
 
-                const varData: Partial<ProductVariation> = {
-                    productId: existing.id,
-                    sku: wcVar.sku || null,
-                    attributes: attrs,
-                    regularPrice: wcVar.regular_price
-                        ? parseFloat(wcVar.regular_price)
-                        : null,
-                    salePrice: wcVar.sale_price
-                        ? parseFloat(wcVar.sale_price)
-                        : null,
-                    imageUrl: wcVar.image?.src || null,
-                    wcId: wcVar.id,
-                    wcLastSyncedAt: new Date(),
-                };
-
-                if (existingVar) {
-                    // Update content, NOT stock
-                    await this.variationRepository.update(
-                        existingVar.id,
-                        varData,
-                    );
-                } else {
-                    const newVar = this.variationRepository.create({
-                        ...varData,
-                        stockQuantity: wcVar.stock_quantity || 0,
-                    });
-                    await this.variationRepository.save(newVar);
-                }
+                // Recalculate parent product stock as sum of all variation stocks
+                const allVariations = await this.variationRepository.find({
+                    where: { productId: existing.id },
+                });
+                const totalStock = allVariations.reduce(
+                    (sum, v) => sum + v.stockQuantity,
+                    0,
+                );
+                await this.productRepository.update(existing.id, {
+                    stockQuantity: totalStock,
+                });
             }
         }
 
@@ -1027,6 +1246,11 @@ export class WooCommerceService {
                             quantity,
                             unitPrice,
                             totalPrice,
+                            stockDecremented: stockDecrementedProducts.some(
+                                (p) =>
+                                    p.productId === productId &&
+                                    p.variationId === variationId,
+                            ),
                         });
                     }
                 }

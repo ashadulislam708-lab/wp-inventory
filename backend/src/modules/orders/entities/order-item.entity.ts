@@ -66,6 +66,9 @@ export class OrderItem {
     })
     totalPrice: number;
 
+    @Column({ name: 'stock_decremented', type: 'boolean', default: true })
+    stockDecremented: boolean;
+
     @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
     createdAt: Date;
 }

@@ -1,13 +1,14 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { httpService } from "~/services/httpService";
 import type { DashboardStats, LowStockProduct, RecentOrder } from "~/types/dashboard";
+import type { PaginatedResponse } from "~/types/common";
 
 export const dashboardService = {
   getStats: () => httpService.get<DashboardStats>("/dashboard/stats"),
-  getLowStock: () =>
-    httpService.get<{ data: LowStockProduct[] }>("/dashboard/low-stock"),
-  getRecentOrders: () =>
-    httpService.get<{ data: RecentOrder[] }>("/dashboard/recent-orders"),
+  getLowStock: (params?: { page?: number; limit?: number }) =>
+    httpService.get<PaginatedResponse<LowStockProduct>>("/dashboard/low-stock", { params }),
+  getRecentOrders: (params?: { page?: number; limit?: number }) =>
+    httpService.get<PaginatedResponse<RecentOrder>>("/dashboard/recent-orders", { params }),
 };
 
 export const fetchDashboardStats = createAsyncThunk(
@@ -25,10 +26,10 @@ export const fetchDashboardStats = createAsyncThunk(
 
 export const fetchLowStockProducts = createAsyncThunk(
   "dashboard/fetchLowStock",
-  async (_, { rejectWithValue }) => {
+  async (params: { page?: number; limit?: number } | undefined, { rejectWithValue }) => {
     try {
-      const res = await dashboardService.getLowStock();
-      return res.data;
+      const res = await dashboardService.getLowStock(params);
+      return { data: res.data, meta: res.meta };
     } catch (error: unknown) {
       return rejectWithValue(
         (error as { message?: string }).message ?? "Failed to fetch low stock"
@@ -39,10 +40,10 @@ export const fetchLowStockProducts = createAsyncThunk(
 
 export const fetchRecentOrders = createAsyncThunk(
   "dashboard/fetchRecentOrders",
-  async (_, { rejectWithValue }) => {
+  async (params: { page?: number; limit?: number } | undefined, { rejectWithValue }) => {
     try {
-      const res = await dashboardService.getRecentOrders();
-      return res.data;
+      const res = await dashboardService.getRecentOrders(params);
+      return { data: res.data, meta: res.meta };
     } catch (error: unknown) {
       return rejectWithValue(
         (error as { message?: string }).message ?? "Failed to fetch recent orders"

@@ -87,6 +87,7 @@ export class InvoiceService {
             courierName:
                 order.shippingPartner === 'STEADFAST' ? 'Steadfast' : 'Pathao',
             trackingCode: order.courierTrackingCode,
+            deliveryId: order.courierConsignmentId,
             customerName: order.customerName,
             customerPhone: order.customerPhone,
             customerAddress: order.customerAddress,
