@@ -3,7 +3,7 @@
  * Handles: +8801XXXXXXXXX, 8801XXXXXXXXX, 01XXXXXXXXX
  */
 export function normalizeBDPhone(phone: string): string {
-    let cleaned = phone.replace(/[\s\-\.\(\)]/g, '');
+    let cleaned = phone.replace(/[\s\-.()]/g, '');
     if (cleaned.startsWith('+')) cleaned = cleaned.substring(1);
     if (cleaned.startsWith('880') && cleaned.length === 13)
         cleaned = cleaned.substring(3);
