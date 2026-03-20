@@ -13,7 +13,7 @@ export default function InvoicePrintPage() {
   const { id } = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showQrCode, setShowQrCode] = useState(true);
+  const [showQrCode, setShowQrCode] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -127,69 +127,66 @@ export default function InvoicePrintPage() {
               src="/logo.png"
               alt="Glam Lavish"
               style={{
-                maxWidth: "2.2in",
+                maxWidth: "1.6in",
                 height: "auto",
                 display: "block",
                 margin: "0 auto",
               }}
             />
+            <div style={{ fontSize: "8px", marginTop: "2px", color: "#000" }}>
+              www.glamlavish.com | 09678-770181
+            </div>
           </div>
 
           {/* Invoice Metadata */}
           <div
             style={{
-              borderTop: "1px dashed #000",
-              borderBottom: "1px dashed #000",
+              borderBottom: "1px dashed #ccc",
               padding: "4px 0",
               marginBottom: "6px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span><strong>Invoice No:</strong></span>
-              <span>{invoice.invoiceId}</span>
+            <div>
+              <span style={{ fontWeight: "normal" }}>Invoice No:</span> {invoice.invoiceId}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span><strong>Invoice Date:</strong></span>
-              <span>{formatDate(invoice.date)}</span>
+            <div>
+              <span style={{ fontWeight: "normal" }}>Invoice Date:</span> {formatDate(invoice.date)}
             </div>
             {invoice.courierName && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span><strong>Courier:</strong></span>
-                <span>{invoice.courierName}</span>
+              <div>
+                <span style={{ fontWeight: "normal" }}>Courier:</span> {invoice.courierName}
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span><strong>Delivery ID:</strong></span>
-              <span>{invoice.deliveryId || "-"}</span>
+            <div>
+              <span style={{ fontWeight: "normal" }}>Delivery ID:</span> {invoice.deliveryId || "-"}
             </div>
           </div>
 
           {/* Invoice To */}
           <div
             style={{
-              borderBottom: "1px dashed #000",
               paddingBottom: "4px",
               marginBottom: "6px",
             }}
           >
-            <div style={{ fontWeight: "bold", marginBottom: "2px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            <div style={{ fontWeight: "normal", marginBottom: "2px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
               Invoice To
             </div>
             <div>
-              <strong>Name:</strong> {invoice.customerName}
+              <span style={{ fontWeight: "normal" }}>Name:</span> {invoice.customerName}
             </div>
             <div>
-              <strong>Phone:</strong> {invoice.customerPhone}
+              <span style={{ fontWeight: "normal" }}>Phone:</span> {invoice.customerPhone}
             </div>
             <div style={{ fontSize: "10px" }}>
-              <strong>Address:</strong> {invoice.customerAddress}
+              <span style={{ fontWeight: "normal" }}>Address:</span> {invoice.customerAddress}
             </div>
           </div>
 
           {/* Items Table */}
           <div
             style={{
-              borderBottom: "1px dashed #000",
+              borderTop: "1px solid #000",
               paddingBottom: "4px",
               marginBottom: "6px",
             }}
@@ -203,23 +200,22 @@ export default function InvoicePrintPage() {
             >
               <thead>
                 <tr style={{ borderBottom: "1px solid #000" }}>
-                  <th style={{ textAlign: "left", paddingBottom: "2px", width: "40%" }}>Product</th>
-                  <th style={{ textAlign: "center", paddingBottom: "2px", width: "20%" }}>Color/Size</th>
-                  <th style={{ textAlign: "center", paddingBottom: "2px", width: "15%" }}>Qty</th>
-                  <th style={{ textAlign: "right", paddingBottom: "2px", width: "25%" }}>Price</th>
+                  <th style={{ textAlign: "left", paddingBottom: "2px", paddingTop: "2px", width: "35%", fontWeight: "normal" }}>Product</th>
+                  <th style={{ textAlign: "center", paddingBottom: "2px", paddingTop: "2px", width: "18%", fontWeight: "normal" }}>Color/Size</th>
+                  <th style={{ textAlign: "center", paddingBottom: "2px", paddingTop: "2px", width: "12%", fontWeight: "normal" }}>Qty</th>
+                  <th style={{ textAlign: "center", paddingBottom: "2px", paddingTop: "2px", width: "15%", fontWeight: "normal" }}>Price</th>
+                  <th style={{ textAlign: "right", paddingBottom: "2px", paddingTop: "2px", width: "20%", fontWeight: "normal" }}>Item Total</th>
                 </tr>
               </thead>
               <tbody>
                 {invoice.items.map((item, idx) => (
-                  <tr key={idx}>
+                  <tr key={idx} style={{ borderBottom: idx < invoice.items.length - 1 ? "1px dashed #ddd" : "none" }}>
                     <td
                       style={{
                         textAlign: "left",
-                        paddingTop: "2px",
+                        padding: "2px 0",
                         maxWidth: "100px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        wordBreak: "break-word",
                       }}
                     >
                       {item.name}
@@ -227,7 +223,7 @@ export default function InvoicePrintPage() {
                     <td
                       style={{
                         textAlign: "center",
-                        paddingTop: "2px",
+                        padding: "2px 0",
                         maxWidth: "55px",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -236,10 +232,13 @@ export default function InvoicePrintPage() {
                     >
                       {item.variation || "-"}
                     </td>
-                    <td style={{ textAlign: "center", paddingTop: "2px" }}>
+                    <td style={{ textAlign: "center", padding: "2px 0" }}>
                       {item.quantity}
                     </td>
-                    <td style={{ textAlign: "right", paddingTop: "2px" }}>
+                    <td style={{ textAlign: "center", padding: "2px 0" }}>
+                      {item.price}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "2px 0" }}>
                       {item.price * item.quantity}
                     </td>
                   </tr>
@@ -251,39 +250,50 @@ export default function InvoicePrintPage() {
           {/* Totals */}
           <div
             style={{
-              borderBottom: "1px dashed #000",
+              borderBottom: showQrCode && invoice.qrCodeDataUrl ? "1px dashed #000" : "none",
               paddingBottom: "4px",
               marginBottom: "6px",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Discount:</span>
+              <span>0 TK</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Sub Total:</span>
-              <span>BDT {invoice.subtotal}</span>
+              <span>{invoice.subtotal} TK</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Delivery Charge:</span>
-              <span>BDT {invoice.shippingFee}</span>
+              <span>{invoice.shippingFee} TK</span>
             </div>
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                fontWeight: "bold",
                 marginTop: "2px",
               }}
             >
               <span>Grand Total:</span>
-              <span>BDT {invoice.grandTotal}</span>
+              <span>{invoice.grandTotal} TK</span>
             </div>
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                fontWeight: "bold",
+              }}
+            >
+              <span>Advance Payment:</span>
+              <span>0 TK</span>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
               }}
             >
               <span>Due Amount:</span>
-              <span>BDT {invoice.dueAmount}</span>
+              <span>{invoice.dueAmount} TK</span>
             </div>
           </div>
 
@@ -306,7 +316,6 @@ export default function InvoicePrintPage() {
             style={{
               textAlign: "center",
               fontSize: "8px",
-              borderTop: "1px dashed #000",
               paddingTop: "4px",
             }}
           >
