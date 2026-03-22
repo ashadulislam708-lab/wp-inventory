@@ -996,16 +996,20 @@ export default function CreateOrderPage() {
                 </span>
                 <span>{formatBDT(subtotal)}</span>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm text-muted-foreground">Discount Amount</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={subtotal}
-                  value={discountAmount || ""}
-                  onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
-                  placeholder="0"
-                />
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Discount Amount</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={subtotal}
+                    value={discountAmount || ""}
+                    onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="bg-white pl-7"
+                  />
+                </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-xs text-green-600 mt-1">
                     <span>After Discount</span>
@@ -1022,16 +1026,20 @@ export default function CreateOrderPage() {
                 <span>Total (COD)</span>
                 <span className="text-lg text-indigo-600">{formatBDT(grandTotal)}</span>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm text-muted-foreground">Advance Amount</label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={grandTotal}
-                  value={advanceAmount || ""}
-                  onChange={(e) => setAdvanceAmount(Math.max(0, Number(e.target.value)))}
-                  placeholder="0"
-                />
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Advance Amount</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={grandTotal}
+                    value={advanceAmount || ""}
+                    onChange={(e) => setAdvanceAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="bg-white pl-7"
+                  />
+                </div>
                 {advanceAmount > 0 && (
                   <div className="flex justify-between text-xs text-green-600 mt-1">
                     <span>After Advance</span>
