@@ -2,6 +2,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import { httpService } from "~/services/httpService";
 import type {
   CreateOrderRequest,
+  CustomerOrderHistory,
   FetchOrdersParams,
   InvoiceData,
   Order,
@@ -43,6 +44,11 @@ export const orderService = {
 
   addOrderNote: (orderId: string, content: string) =>
     httpService.post<OrderNote>(`/orders/${orderId}/notes`, { content }),
+
+  getCustomerHistory: (phone: string) =>
+    httpService.get<CustomerOrderHistory>("/orders/customer-history", {
+      params: { phone },
+    }),
 };
 
 export const fetchOrders = createAsyncThunk(

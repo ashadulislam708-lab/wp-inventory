@@ -18,6 +18,41 @@ export interface SyncLog {
   createdAt: string;
 }
 
+export interface WcOrderSummary {
+  wcOrderId: number;
+  wcStatus: string;
+  customerName: string;
+  customerPhone: string;
+  total: string;
+  dateCreated: string;
+  isSynced: boolean;
+  localOrderId: string | null;
+  localInvoiceId: string | null;
+}
+
+export interface WcOrderListResponse {
+  data: WcOrderSummary[];
+  meta: {
+    page: number;
+    perPage: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface SingleSyncResult {
+  status: "created" | "already_synced";
+  orderId?: string;
+  invoiceId?: string;
+}
+
+export interface BulkSyncResult {
+  synced: number;
+  skipped: number;
+  errors: number;
+  results: Array<{ wcOrderId: number; status: string; error?: string }>;
+}
+
 export interface ImportResult {
   imported: number;
   updated: number;

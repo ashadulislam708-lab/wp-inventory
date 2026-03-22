@@ -1,4 +1,11 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
+import {
+    IsString,
+    IsNotEmpty,
+    IsEnum,
+    IsOptional,
+    IsNumber,
+    Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ShippingZoneEnum } from '../../../shared/enums/shipping-zone.enum.js';
 
@@ -34,4 +41,20 @@ export class UpdateOrderDto {
     @IsOptional()
     @IsEnum(ShippingZoneEnum)
     shippingZone?: ShippingZoneEnum;
+
+    @ApiPropertyOptional({
+        description: 'Discount amount (BDT) — reduces subtotal',
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    discountAmount?: number;
+
+    @ApiPropertyOptional({
+        description: 'Advance payment amount (BDT) — reduces due/COD amount',
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    advanceAmount?: number;
 }

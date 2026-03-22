@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 import * as crypto from 'crypto';
 import { Product } from '../../products/entities/product.entity.js';
@@ -12,6 +12,8 @@ import { StockAdjustmentLog } from '../../products/entities/stock-adjustment-log
 import { InvoiceCounter } from '../../invoice/entities/invoice-counter.entity.js';
 import { SyncLog } from '../../sync/entities/sync-log.entity.js';
 import { SyncLogsQueryDto } from '../dto/sync-logs-query.dto.js';
+import { FetchWcOrdersQueryDto } from '../dto/fetch-wc-orders-query.dto.js';
+import { SyncBulkOrdersDto } from '../dto/sync-bulk-orders.dto.js';
 import { ProductTypeEnum } from '../../../shared/enums/product-type.enum.js';
 import { SyncStatusEnum } from '../../../shared/enums/sync-status.enum.js';
 import { SyncDirectionEnum } from '../../../shared/enums/sync-direction.enum.js';
@@ -25,13 +27,14 @@ import { envConfigService } from '../../../config/env-config.service.js';
 import { restoreOrderItemsStock } from '../../../shared/utils/stock-restoration.util.js';
 
 const WC_STATUS_MAP: Record<string, OrderStatusEnum> = {
-    pending: OrderStatusEnum.PENDING,
-    'on-hold': OrderStatusEnum.PENDING,
+    pending: OrderStatusEnum.PENDING_PAYMENT,
     processing: OrderStatusEnum.PROCESSING,
-    completed: OrderStatusEnum.DELIVERED,
+    'on-hold': OrderStatusEnum.ON_HOLD,
+    completed: OrderStatusEnum.COMPLETED,
     cancelled: OrderStatusEnum.CANCELLED,
-    refunded: OrderStatusEnum.RETURNED,
-    failed: OrderStatusEnum.CANCELLED,
+    refunded: OrderStatusEnum.REFUNDED,
+    failed: OrderStatusEnum.FAILED,
+    'checkout-draft': OrderStatusEnum.DRAFT,
 };
 
 const SHIPPING_FEES: Record<ShippingZoneEnum, number> = {
@@ -221,15 +224,19 @@ export class WooCommerceService {
 
             // Update status if changed
             const newStatus =
-                WC_STATUS_MAP[body.status] || OrderStatusEnum.PENDING;
+                WC_STATUS_MAP[body.status] || OrderStatusEnum.PENDING_PAYMENT;
             if (existing.status !== newStatus) {
-                // Handle stock restoration for CANCELLED/RETURNED transitions
+                // Handle stock restoration for terminal status transitions
+                const stockRestoreStatuses = [
+                    OrderStatusEnum.CANCELLED,
+                    OrderStatusEnum.REFUNDED,
+                    OrderStatusEnum.FAILED,
+                    OrderStatusEnum.DRAFT,
+                ];
                 const isCancelOrReturn =
-                    newStatus === OrderStatusEnum.CANCELLED ||
-                    newStatus === OrderStatusEnum.RETURNED;
+                    stockRestoreStatuses.includes(newStatus);
                 const wasAlreadyCancelledOrReturned =
-                    existing.status === OrderStatusEnum.CANCELLED ||
-                    existing.status === OrderStatusEnum.RETURNED;
+                    stockRestoreStatuses.includes(existing.status);
 
                 if (isCancelOrReturn && !wasAlreadyCancelledOrReturned) {
                     // Load order with items for stock restoration
@@ -239,10 +246,14 @@ export class WooCommerceService {
                     });
 
                     if (orderWithItems && orderWithItems.items?.length > 0) {
+                        const reasonMap: Record<string, string> = {
+                            [OrderStatusEnum.CANCELLED]: 'Order Cancelled',
+                            [OrderStatusEnum.REFUNDED]: 'Order Refunded',
+                            [OrderStatusEnum.FAILED]: 'Order Failed',
+                            [OrderStatusEnum.DRAFT]: 'Order Reverted to Draft',
+                        };
                         const reasonText =
-                            newStatus === OrderStatusEnum.CANCELLED
-                                ? 'Order Cancelled'
-                                : 'Order Returned';
+                            reasonMap[newStatus] || 'Order Status Changed';
 
                         await this.dataSource.transaction(async (manager) => {
                             await restoreOrderItemsStock(
@@ -268,9 +279,13 @@ export class WooCommerceService {
                             }
                         }
 
-                        // Cancel courier for CANCELLED only (not RETURNED)
+                        // Cancel courier for CANCELLED and FAILED only
+                        const courierCancelStatuses = [
+                            OrderStatusEnum.CANCELLED,
+                            OrderStatusEnum.FAILED,
+                        ];
                         if (
-                            newStatus === OrderStatusEnum.CANCELLED &&
+                            courierCancelStatuses.includes(newStatus) &&
                             orderWithItems.courierConsignmentId
                         ) {
                             this.steadfastService
@@ -566,6 +581,27 @@ export class WooCommerceService {
     }
 
     /**
+     * Add a note to a WooCommerce order (outbound sync).
+     * Used to push the local invoice number back to WC after order import.
+     * Non-blocking: catches errors and logs them rather than throwing.
+     */
+    async addOrderNote(wcOrderId: number, note: string): Promise<void> {
+        try {
+            const client = this.getWcClient();
+            await client.post(`/orders/${wcOrderId}/notes`, {
+                note,
+                customer_note: false,
+            });
+
+            this.logger.log(`Added note to WC order ${wcOrderId}: ${note}`);
+        } catch (err: any) {
+            this.logger.error(
+                `Failed to add note to WC order ${wcOrderId}: ${err.message}`,
+            );
+        }
+    }
+
+    /**
      * Push product stock to WooCommerce (outbound sync)
      * For simple products: PUT /wc/v3/products/{wcProductId} with { stock_quantity }
      * For variations: PUT /wc/v3/products/{wcProductId}/variations/{wcVariationId} with { stock_quantity }
@@ -708,6 +744,27 @@ export class WooCommerceService {
                 SyncLogStatusEnum.FAILED,
                 { variationId },
                 error.message,
+            );
+        }
+    }
+
+    /**
+     * Push a private order note to WooCommerce.
+     * Non-blocking: catches errors and logs them rather than throwing.
+     */
+    async pushOrderNoteToWc(wcOrderId: number, note: string): Promise<void> {
+        try {
+            const client = this.getWcClient();
+            await client.post(`/orders/${wcOrderId}/notes`, {
+                note,
+                customer_note: false,
+            });
+            this.logger.log(
+                `Pushed order note to WC order ${wcOrderId}: ${note}`,
+            );
+        } catch (error: any) {
+            this.logger.error(
+                `Failed to push order note to WC order ${wcOrderId}: ${error.message}`,
             );
         }
     }
@@ -1070,7 +1127,8 @@ export class WooCommerceService {
 
                 // Map WC status
                 const status =
-                    WC_STATUS_MAP[wcOrder.status] || OrderStatusEnum.PENDING;
+                    WC_STATUS_MAP[wcOrder.status] ||
+                    OrderStatusEnum.PENDING_PAYMENT;
 
                 // Parse shipping info
                 const shippingZone = ShippingZoneEnum.OUTSIDE_DHAKA; // Default
@@ -1303,7 +1361,7 @@ export class WooCommerceService {
             })
             .then(async ({ order, stockDecrementedProducts: decremented }) => {
                 // Push to Steadfast
-                if (order.status === OrderStatusEnum.PENDING) {
+                if (order.status === OrderStatusEnum.PENDING_PAYMENT) {
                     const courierResult =
                         await this.steadfastService.createOrder({
                             invoice: order.invoiceId,
@@ -1330,6 +1388,18 @@ export class WooCommerceService {
                             );
                         },
                     );
+                }
+
+                // Push invoice number as WC order note (non-blocking)
+                if (order.wcOrderId) {
+                    this.addOrderNote(
+                        order.wcOrderId,
+                        `Invoice Number: ${order.invoiceId}`,
+                    ).catch((err) => {
+                        this.logger.error(
+                            `Failed to add invoice note to WC order ${order.wcOrderId}: ${err.message}`,
+                        );
+                    });
                 }
 
                 return order;
@@ -1359,6 +1429,194 @@ export class WooCommerceService {
         );
 
         return `GL-${String(nextNum).padStart(4, '0')}`;
+    }
+
+    /**
+     * Fetch WC orders with local sync status for browsing
+     */
+    async fetchWcOrders(dto: FetchWcOrdersQueryDto) {
+        const client = this.getWcClient();
+        const page = dto.page || 1;
+        const perPage = dto.perPage || 20;
+
+        const params: Record<string, any> = {
+            page,
+            per_page: perPage,
+            orderby: 'date',
+            order: 'desc',
+        };
+
+        if (dto.status) {
+            params.status = dto.status;
+        }
+
+        if (dto.dateAfter) {
+            params.after = dto.dateAfter;
+        } else {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            params.after = thirtyDaysAgo.toISOString();
+        }
+
+        const response = await client.get('/orders', { params });
+        const wcOrders = response.data;
+        const total = parseInt(response.headers['x-wp-total'] || '0', 10);
+        const totalPages = parseInt(
+            response.headers['x-wp-totalpages'] || '0',
+            10,
+        );
+
+        // Batch-check which orders are already synced locally
+        const wcOrderIds = wcOrders.map((o: any) => o.id);
+        const localOrders =
+            wcOrderIds.length > 0
+                ? await this.orderRepository.find({
+                      where: { wcOrderId: In(wcOrderIds) },
+                      select: ['id', 'wcOrderId', 'invoiceId'],
+                  })
+                : [];
+        const localMap = new Map(
+            localOrders.map((o) => [
+                o.wcOrderId,
+                { id: o.id, invoiceId: o.invoiceId },
+            ]),
+        );
+
+        const data = wcOrders.map((wc: any) => {
+            const local = localMap.get(wc.id);
+            return {
+                wcOrderId: wc.id,
+                wcStatus: wc.status,
+                customerName:
+                    `${wc.billing?.first_name || ''} ${wc.billing?.last_name || ''}`.trim(),
+                customerPhone: wc.billing?.phone || '',
+                total: wc.total,
+                dateCreated: wc.date_created,
+                isSynced: !!local,
+                localOrderId: local?.id || null,
+                localInvoiceId: local?.invoiceId || null,
+            };
+        });
+
+        return {
+            data,
+            meta: { page, perPage, total, totalPages },
+        };
+    }
+
+    /**
+     * Sync a single WC order by its WooCommerce order ID
+     */
+    async syncSingleOrder(wcOrderId: number) {
+        // Check if already synced
+        const existing = await this.orderRepository.findOne({
+            where: { wcOrderId },
+            select: ['id', 'invoiceId'],
+        });
+
+        if (existing) {
+            return {
+                status: 'already_synced' as const,
+                orderId: existing.id,
+                invoiceId: existing.invoiceId,
+            };
+        }
+
+        // Fetch from WC API
+        const client = this.getWcClient();
+        const response = await client.get(`/orders/${wcOrderId}`);
+        const wcOrder = response.data;
+
+        // Create order using existing logic
+        const order = await this.createOrderFromWc(wcOrder);
+
+        await this.logSync(
+            SyncDirectionEnum.INBOUND,
+            'order',
+            order.id,
+            SyncLogStatusEnum.SUCCESS,
+            { wcOrderId, invoiceId: order.invoiceId },
+        );
+
+        return {
+            status: 'created' as const,
+            orderId: order.id,
+            invoiceId: order.invoiceId,
+        };
+    }
+
+    /**
+     * Bulk sync selected WC orders by their WooCommerce order IDs
+     */
+    async syncBulkOrders(dto: SyncBulkOrdersDto) {
+        const { wcOrderIds } = dto;
+
+        // Filter out already-synced orders
+        const existingOrders = await this.orderRepository.find({
+            where: { wcOrderId: In(wcOrderIds) },
+            select: ['wcOrderId'],
+        });
+        const existingSet = new Set(existingOrders.map((o) => o.wcOrderId));
+        const unsyncedIds = wcOrderIds.filter((id) => !existingSet.has(id));
+
+        const results: Array<{
+            wcOrderId: number;
+            status: string;
+            error?: string;
+        }> = [];
+        let synced = 0;
+        let errors = 0;
+        const skipped = wcOrderIds.length - unsyncedIds.length;
+
+        // Add skipped entries to results
+        for (const id of wcOrderIds) {
+            if (existingSet.has(id)) {
+                results.push({ wcOrderId: id, status: 'already_synced' });
+            }
+        }
+
+        // Process sequentially to avoid invoice ID race conditions
+        const client = this.getWcClient();
+        for (const wcOrderId of unsyncedIds) {
+            try {
+                const response = await client.get(`/orders/${wcOrderId}`);
+                const wcOrder = response.data;
+                const order = await this.createOrderFromWc(wcOrder);
+
+                await this.logSync(
+                    SyncDirectionEnum.INBOUND,
+                    'order',
+                    order.id,
+                    SyncLogStatusEnum.SUCCESS,
+                    { wcOrderId, invoiceId: order.invoiceId },
+                );
+
+                results.push({ wcOrderId, status: 'created' });
+                synced++;
+            } catch (error: any) {
+                this.logger.error(
+                    `Bulk sync error for WC #${wcOrderId}: ${error.message}`,
+                );
+
+                await this.logSync(
+                    SyncDirectionEnum.INBOUND,
+                    'order',
+                    null,
+                    SyncLogStatusEnum.FAILED,
+                    { wcOrderId },
+                    error.message,
+                );
+
+                results.push({
+                    wcOrderId,
+                    status: 'failed',
+                    error: error.message,
+                });
+                errors++;
+            }
+        }
+
+        return { synced, skipped, errors, results };
     }
 
     private async logSync(

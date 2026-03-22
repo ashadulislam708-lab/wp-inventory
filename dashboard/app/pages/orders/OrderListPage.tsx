@@ -29,6 +29,7 @@ import { cn } from "~/lib/utils";
 import { formatBDT, formatDateTime } from "~/utils/formatting";
 import { getOrderStatusColor, getOrderSourceColor } from "~/utils/badges";
 import { OrderStatusEnum, OrderSourceEnum } from "~/enums";
+import { ORDER_STATUS_LABELS } from "~/constants/orderStatusLabels";
 import { Plus, FileDown, Search, Loader2, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { FormHandleState } from "~/types/common";
@@ -154,7 +155,7 @@ export default function OrderListPage() {
                 <SelectItem value="all">All Status</SelectItem>
                 {Object.values(OrderStatusEnum).map((s) => (
                   <SelectItem key={s} value={s}>
-                    {s}
+                    {ORDER_STATUS_LABELS[s] ?? s}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -305,7 +306,7 @@ export default function OrderListPage() {
                             variant="outline"
                             className={getOrderStatusColor(order.status)}
                           >
-                            {order.status}
+                            {ORDER_STATUS_LABELS[order.status as OrderStatusEnum] ?? order.status}
                           </Badge>
                         </TableCell>
                         <TableCell>

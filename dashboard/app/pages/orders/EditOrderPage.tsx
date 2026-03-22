@@ -59,6 +59,10 @@ export default function EditOrderPage() {
     loadingButtonType: "",
   });
 
+  // Discount & Advance
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [advanceAmount, setAdvanceAmount] = useState(0);
+
   const form = useForm<CreateOrderFormData>({
     resolver: zodResolver(createOrderSchema),
     defaultValues: {
@@ -77,7 +81,8 @@ export default function EditOrderPage() {
     (sum, item) => sum + Number(item.totalPrice),
     0
   ) ?? 0;
-  const grandTotal = subtotal + shippingFee;
+  const grandTotal = subtotal - discountAmount + shippingFee;
+  const dueAmount = grandTotal - advanceAmount;
 
   // Fetch order data on mount
   useEffect(() => {
@@ -99,6 +104,8 @@ export default function EditOrderPage() {
         shippingZone: order.shippingZone,
         shippingPartner: order.shippingPartner,
       });
+      setDiscountAmount(Number(order.discountAmount) || 0);
+      setAdvanceAmount(Number(order.advanceAmount) || 0);
     }
   }, [order, form]);
 
@@ -106,11 +113,11 @@ export default function EditOrderPage() {
   useEffect(() => {
     if (
       order &&
-      order.status !== OrderStatusEnum.PENDING &&
-      order.status !== OrderStatusEnum.CONFIRMED
+      order.status !== OrderStatusEnum.PENDING_PAYMENT &&
+      order.status !== OrderStatusEnum.ON_HOLD
     ) {
       toast.error(
-        `Order cannot be edited in ${order.status} status. Only PENDING and CONFIRMED orders can be edited.`
+        `Order cannot be edited in ${order.status} status. Only Pending payment and On hold orders can be edited.`
       );
       navigate(`/orders/${id}`, { replace: true });
     }
@@ -130,7 +137,12 @@ export default function EditOrderPage() {
       }));
 
       orderService
-        .updateOrder(id, { ...data, items })
+        .updateOrder(id, {
+          ...data,
+          items,
+          discountAmount: discountAmount || undefined,
+          advanceAmount: advanceAmount || undefined,
+        })
         .then(() => {
           toast.success(`Order ${order.invoiceId} updated successfully`);
           navigate(`/orders/${id}`);
@@ -144,7 +156,7 @@ export default function EditOrderPage() {
           setFormHandle({ isLoading: false, loadingButtonType: "" });
         });
     },
-    [id, order, navigate]
+    [id, order, navigate, discountAmount, advanceAmount]
   );
 
   // Loading state
@@ -167,8 +179,8 @@ export default function EditOrderPage() {
 
   // Guard: if order is not editable, show message (fallback for the redirect useEffect)
   if (
-    order.status !== OrderStatusEnum.PENDING &&
-    order.status !== OrderStatusEnum.CONFIRMED
+    order.status !== OrderStatusEnum.PENDING_PAYMENT &&
+    order.status !== OrderStatusEnum.ON_HOLD
   ) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
@@ -427,6 +439,23 @@ export default function EditOrderPage() {
                 </span>
                 <span>{formatBDT(subtotal)}</span>
               </div>
+              <div className="space-y-1">
+                <label className="text-sm text-muted-foreground">Discount Amount</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={subtotal}
+                  value={discountAmount || ""}
+                  onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                  placeholder="0"
+                />
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-xs text-green-600 mt-1">
+                    <span>After Discount</span>
+                    <span>{formatBDT(subtotal - discountAmount)}</span>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Shipping Fee</span>
                 <span>{formatBDT(shippingFee)}</span>
@@ -452,6 +481,27 @@ export default function EditOrderPage() {
                   </span>
                 </div>
               )}
+              <div className="space-y-1">
+                <label className="text-sm text-muted-foreground">Advance Amount</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={grandTotal}
+                  value={advanceAmount || ""}
+                  onChange={(e) => setAdvanceAmount(Math.max(0, Number(e.target.value)))}
+                  placeholder="0"
+                />
+                {advanceAmount > 0 && (
+                  <div className="flex justify-between text-xs text-green-600 mt-1">
+                    <span>After Advance</span>
+                    <span>{formatBDT(dueAmount)}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>Due Amount</span>
+                <span>{formatBDT(dueAmount)}</span>
+              </div>
               <div className="flex gap-3">
                 <Button
                   type="button"

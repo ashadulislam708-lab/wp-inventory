@@ -21,6 +21,8 @@ import EmptyState from "~/components/atoms/EmptyState";
 import Pagination from "~/components/atoms/Pagination";
 import { formatBDT, formatDateTime } from "~/utils/formatting";
 import { getOrderStatusColor, getOrderSourceColor } from "~/utils/badges";
+import { ORDER_STATUS_LABELS } from "~/constants/orderStatusLabels";
+import { OrderStatusEnum } from "~/enums";
 import {
   Package,
   DollarSign,
@@ -243,7 +245,7 @@ export default function DashboardPage() {
                             variant="outline"
                             className={getOrderStatusColor(order.status)}
                           >
-                            {order.status}
+                            {ORDER_STATUS_LABELS[order.status as OrderStatusEnum] ?? order.status}
                           </Badge>
                         </TableCell>
                         <TableCell>

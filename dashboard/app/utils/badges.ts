@@ -4,20 +4,22 @@ export const getOrderStatusColor = (
   status: OrderStatusEnum
 ): string => {
   const map: Record<OrderStatusEnum, string> = {
-    [OrderStatusEnum.PENDING]:
+    [OrderStatusEnum.PENDING_PAYMENT]:
       "bg-amber-100 text-amber-800 border-amber-200",
-    [OrderStatusEnum.CONFIRMED]:
-      "bg-blue-100 text-blue-800 border-blue-200",
     [OrderStatusEnum.PROCESSING]:
       "bg-indigo-100 text-indigo-800 border-indigo-200",
-    [OrderStatusEnum.SHIPPED]:
-      "bg-cyan-100 text-cyan-800 border-cyan-200",
-    [OrderStatusEnum.DELIVERED]:
+    [OrderStatusEnum.ON_HOLD]:
+      "bg-blue-100 text-blue-800 border-blue-200",
+    [OrderStatusEnum.COMPLETED]:
       "bg-green-100 text-green-800 border-green-200",
     [OrderStatusEnum.CANCELLED]:
       "bg-red-100 text-red-800 border-red-200",
-    [OrderStatusEnum.RETURNED]:
+    [OrderStatusEnum.REFUNDED]:
       "bg-gray-100 text-gray-800 border-gray-200",
+    [OrderStatusEnum.FAILED]:
+      "bg-red-100 text-red-700 border-red-200",
+    [OrderStatusEnum.DRAFT]:
+      "bg-slate-100 text-slate-700 border-slate-200",
   };
   return map[status] ?? "bg-gray-100 text-gray-800";
 };

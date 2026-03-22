@@ -46,6 +46,7 @@ import {
 } from "~/components/ui/dialog";
 import {
   ArrowLeft,
+  Check,
   ChevronRight,
   Loader2,
   Minus,
@@ -55,7 +56,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Product, ProductDetail, ProductVariation } from "~/types/product";
-import type { CreateOrderItemRequest } from "~/types/order";
+import type { CreateOrderItemRequest, CustomerOrderHistory } from "~/types/order";
 import type { FormHandleState } from "~/types/common";
 
 interface CartItem {
@@ -95,6 +96,10 @@ export default function CreateOrderPage() {
   // Cart
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
+  // Discount & Advance
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [advanceAmount, setAdvanceAmount] = useState(0);
+
   const form = useForm<CreateOrderFormData>({
     resolver: zodResolver(createOrderSchema),
     defaultValues: {
@@ -106,13 +111,53 @@ export default function CreateOrderPage() {
     },
   });
 
+  // Customer history lookup by phone
+  const [customerHistory, setCustomerHistory] = useState<CustomerOrderHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const phoneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const customerPhone = form.watch("customerPhone");
+
+  useEffect(() => {
+    setCustomerHistory(null);
+    if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
+
+    const phoneRegex = /^(\+?880)?01[3-9]\d{8}$/;
+    if (!customerPhone || !phoneRegex.test(customerPhone)) return;
+
+    phoneDebounceRef.current = setTimeout(() => {
+      setHistoryLoading(true);
+      orderService
+        .getCustomerHistory(customerPhone)
+        .then((data) => setCustomerHistory(data))
+        .catch(() => setCustomerHistory(null))
+        .finally(() => setHistoryLoading(false));
+    }, 500);
+
+    return () => {
+      if (phoneDebounceRef.current) clearTimeout(phoneDebounceRef.current);
+    };
+  }, [customerPhone]);
+
+  // Auto-fill name & address when customer has exactly one of each
+  useEffect(() => {
+    if (!customerHistory || customerHistory.total === 0) return;
+    if (customerHistory.names.length === 1 && !form.getValues("customerName")) {
+      form.setValue("customerName", customerHistory.names[0]);
+    }
+    if (customerHistory.addresses.length === 1 && !form.getValues("customerAddress")) {
+      form.setValue("customerAddress", customerHistory.addresses[0]);
+    }
+  }, [customerHistory, form]);
+
   const shippingZone = form.watch("shippingZone");
   const shippingFee = getShippingFee(shippingZone);
   const subtotal = cartItems.reduce(
     (sum, item) => sum + item.unitPrice * item.quantity,
     0
   );
-  const grandTotal = subtotal + shippingFee;
+  const grandTotal = subtotal - discountAmount + shippingFee;
+  const dueAmount = grandTotal - advanceAmount;
 
   // Product search
   useEffect(() => {
@@ -282,7 +327,12 @@ export default function CreateOrderPage() {
       }));
 
       orderService
-        .createOrder({ ...data, items })
+        .createOrder({
+          ...data,
+          items,
+          discountAmount: discountAmount || undefined,
+          advanceAmount: advanceAmount || undefined,
+        })
         .then((order) => {
           toast.success(`Order ${order.invoiceId} created successfully`);
           navigate(`/orders/${order.id}`);
@@ -296,7 +346,7 @@ export default function CreateOrderPage() {
           setFormHandle({ isLoading: false, loadingButtonType: "" });
         });
     },
-    [cartItems, navigate]
+    [cartItems, navigate, discountAmount, advanceAmount]
   );
 
   return (
@@ -718,25 +768,116 @@ export default function CreateOrderPage() {
                 >
                   <FormField
                     control={form.control}
-                    name="customerName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Customer name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
                     name="customerPhone"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
                         <FormControl>
                           <Input placeholder="01XXXXXXXXX" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                        {historyLoading && (
+                          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>Looking up customer...</span>
+                          </div>
+                        )}
+                        {customerHistory && !historyLoading && customerHistory.total > 0 && (
+                          <div className="mt-2 rounded-md border bg-muted/50 p-3 space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              Order History
+                            </p>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-green-600 font-medium">
+                                {customerHistory.completed} Completed
+                              </span>
+                              <span className="text-amber-600 font-medium">
+                                {customerHistory.refunded} Refunded
+                              </span>
+                              <span className="text-red-600 font-medium">
+                                {customerHistory.cancelled} Cancelled
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {customerHistory.total} total order{customerHistory.total !== 1 ? "s" : ""}
+                            </p>
+                            {customerHistory.names.length >= 1 && (
+                              <div className="pt-2 border-t">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    {customerHistory.names.length > 1
+                                      ? `${customerHistory.names.length} previous names`
+                                      : "Previous name"}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground/70">Click to select</p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {customerHistory.names.map((name) => {
+                                    const isSelected = form.watch("customerName") === name;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={name}
+                                        onClick={() => form.setValue("customerName", name)}
+                                        className={`inline-flex items-center gap-1 text-xs rounded-md px-2.5 py-1 border transition-colors ${
+                                          isSelected
+                                            ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-medium"
+                                            : "bg-background border-input hover:bg-indigo-50 hover:border-indigo-300 cursor-pointer"
+                                        }`}
+                                      >
+                                        {isSelected && <Check className="h-3 w-3" />}
+                                        {name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {customerHistory.addresses.length >= 1 && (
+                              <div className="pt-2 border-t">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    {customerHistory.addresses.length > 1
+                                      ? `${customerHistory.addresses.length} previous addresses`
+                                      : "Previous address"}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground/70">Click to select</p>
+                                </div>
+                                <div className="space-y-1.5">
+                                  {customerHistory.addresses.map((addr) => {
+                                    const isSelected = form.watch("customerAddress") === addr;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={addr}
+                                        onClick={() => form.setValue("customerAddress", addr)}
+                                        className={`w-full text-left flex items-start gap-2 text-xs rounded-md px-2.5 py-1.5 border transition-colors ${
+                                          isSelected
+                                            ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-medium"
+                                            : "bg-background border-input hover:bg-indigo-50 hover:border-indigo-300 cursor-pointer"
+                                        }`}
+                                      >
+                                        {isSelected && <Check className="h-3 w-3 mt-0.5 shrink-0" />}
+                                        <span>{addr}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="customerName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Customer name" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -855,6 +996,27 @@ export default function CreateOrderPage() {
                 </span>
                 <span>{formatBDT(subtotal)}</span>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Discount Amount</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={subtotal}
+                    value={discountAmount || ""}
+                    onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="bg-white pl-7"
+                  />
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-xs text-green-600 mt-1">
+                    <span>After Discount</span>
+                    <span>{formatBDT(subtotal - discountAmount)}</span>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Shipping Fee</span>
                 <span>{formatBDT(shippingFee)}</span>
@@ -864,9 +1026,30 @@ export default function CreateOrderPage() {
                 <span>Total (COD)</span>
                 <span className="text-lg text-indigo-600">{formatBDT(grandTotal)}</span>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Advance Amount</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={grandTotal}
+                    value={advanceAmount || ""}
+                    onChange={(e) => setAdvanceAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="bg-white pl-7"
+                  />
+                </div>
+                {advanceAmount > 0 && (
+                  <div className="flex justify-between text-xs text-green-600 mt-1">
+                    <span>After Advance</span>
+                    <span>{formatBDT(dueAmount)}</span>
+                  </div>
+                )}
+              </div>
               <div className="flex justify-between font-bold">
                 <span>Due Amount</span>
-                <span>{formatBDT(grandTotal)}</span>
+                <span>{formatBDT(dueAmount)}</span>
               </div>
               <Button
                 type="submit"
@@ -884,9 +1067,6 @@ export default function CreateOrderPage() {
                 ) : null}
                 Create Order
               </Button>
-              <p className="text-xs text-muted-foreground text-center mt-2">
-                Order will be automatically sent to Steadfast courier
-              </p>
             </CardContent>
           </Card>
         </div>

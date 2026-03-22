@@ -14,6 +14,7 @@ export interface Order {
   id: string;
   invoiceId: string;
   status: OrderStatusEnum;
+  statusHistory: string[];
   source: OrderSourceEnum;
   customerName: string;
   customerPhone: string;
@@ -23,6 +24,8 @@ export interface Order {
   shippingFee: number;
   subtotal: number;
   grandTotal: number;
+  discountAmount: number;
+  advanceAmount: number;
   courierConsignmentId: string | null;
   courierTrackingCode: string | null;
   qrCodeDataUrl: string | null;
@@ -45,6 +48,8 @@ export interface CreateOrderRequest {
   customerAddress: string;
   shippingZone: ShippingZoneEnum;
   shippingPartner: ShippingPartnerEnum;
+  discountAmount?: number;
+  advanceAmount?: number;
   items: CreateOrderItemRequest[];
 }
 
@@ -78,10 +83,21 @@ export interface InvoiceData {
     price: number;
   }[];
   subtotal: number;
+  discountAmount: number;
   shippingFee: number;
   grandTotal: number;
+  advanceAmount: number;
   dueAmount: number;
   qrCodeDataUrl: string;
+}
+
+export interface CustomerOrderHistory {
+  completed: number;
+  refunded: number;
+  cancelled: number;
+  total: number;
+  names: string[];
+  addresses: string[];
 }
 
 export interface OrderNote {

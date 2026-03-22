@@ -98,9 +98,11 @@ export class InvoiceService {
                 price: Number(item.unitPrice),
             })),
             subtotal: Number(order.subtotal),
+            discountAmount: Number(order.discountAmount),
             shippingFee: Number(order.shippingFee),
             grandTotal: Number(order.grandTotal),
-            dueAmount: Number(order.grandTotal), // Full COD -- dueAmount always equals grandTotal
+            advanceAmount: Number(order.advanceAmount),
+            dueAmount: Number(order.grandTotal) - Number(order.advanceAmount),
             qrCodeDataUrl: order.qrCodeDataUrl,
         };
     }

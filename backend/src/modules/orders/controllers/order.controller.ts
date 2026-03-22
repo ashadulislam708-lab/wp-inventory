@@ -23,6 +23,7 @@ import { UpdateOrderDto } from '../dto/update-order.dto.js';
 import { UpdateOrderStatusDto } from '../dto/update-order-status.dto.js';
 import { ListOrdersDto } from '../dto/list-orders.dto.js';
 import { CreateOrderNoteDto } from '../dto/create-order-note.dto.js';
+import { CustomerHistoryQueryDto } from '../dto/customer-history-query.dto.js';
 import { CurrentUser } from '../../../core/decorators/current-user.decorator.js';
 import { Roles } from '../../../core/decorators/roles.decorator.js';
 import { RolesGuard } from '../../../core/guards/roles.guard.js';
@@ -62,6 +63,16 @@ export class OrderController {
             `attachment; filename=orders-${new Date().toISOString().split('T')[0]}.csv`,
         );
         res.send(csv);
+    }
+
+    /**
+     * Get customer order history stats by phone number
+     * GET /api/orders/customer-history?phone=01XXXXXXXXX
+     */
+    @Get('customer-history')
+    @HttpCode(HttpStatus.OK)
+    async getCustomerHistory(@Query() dto: CustomerHistoryQueryDto) {
+        return this.orderService.getCustomerHistory(dto.phone);
     }
 
     /**

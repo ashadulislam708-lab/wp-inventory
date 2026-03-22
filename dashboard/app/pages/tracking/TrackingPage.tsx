@@ -10,6 +10,7 @@ import LoadingSpinner from "~/components/atoms/LoadingSpinner";
 import { formatDateTime } from "~/utils/formatting";
 import { getOrderStatusColor } from "~/utils/badges";
 import { OrderStatusEnum } from "~/enums";
+import { ORDER_STATUS_LABELS } from "~/constants/orderStatusLabels";
 import { Package, Check, Circle, ExternalLink, AlertCircle } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { TrackingData } from "~/types/tracking";
@@ -119,7 +120,7 @@ export default function TrackingPage() {
               variant="outline"
               className={cn("mt-1", getOrderStatusColor(tracking.status))}
             >
-              {tracking.status}
+              {ORDER_STATUS_LABELS[tracking.status as OrderStatusEnum] ?? tracking.status}
             </Badge>
           </div>
 

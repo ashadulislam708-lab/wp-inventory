@@ -36,7 +36,8 @@ import LoadingSpinner from "~/components/atoms/LoadingSpinner";
 import { formatBDT, formatDateTime } from "~/utils/formatting";
 import { getOrderStatusColor, getOrderSourceColor } from "~/utils/badges";
 import { SHIPPING_ZONE_LABELS } from "~/utils/shipping";
-import { ALLOWED_TRANSITIONS, STATUS_FLOW } from "~/constants/orderTransitions";
+import { ALLOWED_TRANSITIONS } from "~/constants/orderTransitions";
+import { ORDER_STATUS_LABELS } from "~/constants/orderStatusLabels";
 import { OrderStatusEnum } from "~/enums";
 import {
   ArrowLeft,
@@ -46,7 +47,6 @@ import {
   QrCode,
   Edit,
   Check,
-  Circle,
   Send,
   MessageSquare,
   User,
@@ -175,8 +175,8 @@ export default function OrderDetailPage() {
   }
 
   const isEditable =
-    order.status === OrderStatusEnum.PENDING ||
-    order.status === OrderStatusEnum.CONFIRMED;
+    order.status === OrderStatusEnum.PENDING_PAYMENT ||
+    order.status === OrderStatusEnum.ON_HOLD;
   const allowedStatuses = ALLOWED_TRANSITIONS[order.status] ?? [];
 
   return (
@@ -203,7 +203,7 @@ export default function OrderDetailPage() {
                 variant="outline"
                 className={getOrderStatusColor(order.status)}
               >
-                {order.status}
+                {ORDER_STATUS_LABELS[order.status] ?? order.status}
               </Badge>
               <Badge
                 variant="outline"
@@ -250,7 +250,7 @@ export default function OrderDetailPage() {
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
               )}
-              Retry Courier
+              Push to Courier
             </Button>
           )}
         </div>
@@ -275,106 +275,80 @@ export default function OrderDetailPage() {
           <CardTitle>Order Progress</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between overflow-x-auto pb-2">
-            {STATUS_FLOW.map((status, index) => {
-              const currentIndex = STATUS_FLOW.indexOf(order.status);
-              const isCompleted = index <= currentIndex;
-              const isCurrent = status === order.status;
-              const isCancelled =
-                order.status === OrderStatusEnum.CANCELLED ||
-                order.status === OrderStatusEnum.RETURNED;
+          <div className="flex flex-wrap items-center gap-y-3 gap-x-1">
+            {(order.statusHistory ?? [order.status]).map((status, index, arr) => {
+              const isCurrent = index === arr.length - 1;
+              const isDestructive =
+                status === OrderStatusEnum.CANCELLED ||
+                status === OrderStatusEnum.REFUNDED ||
+                status === OrderStatusEnum.FAILED;
 
               return (
-                <div key={status} className="flex items-center flex-1 last:flex-none">
-                  <div className="flex flex-col items-center">
+                <div key={index} className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <div
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-medium",
-                        isCancelled && isCurrent
-                          ? "border-red-500 bg-red-500 text-white"
-                          : isCompleted
-                            ? "border-indigo-500 bg-indigo-500 text-white"
-                            : "border-gray-300 text-gray-400",
-                        isCurrent && !isCancelled && "ring-2 ring-indigo-300 animate-pulse"
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-medium",
+                        isCurrent && isDestructive
+                          ? "border-red-500 bg-red-500 text-white ring-2 ring-red-300 animate-pulse"
+                          : isCurrent
+                            ? "border-indigo-500 bg-indigo-500 text-white ring-2 ring-indigo-300 animate-pulse"
+                            : isDestructive
+                              ? "border-red-500 bg-red-500 text-white"
+                              : "border-indigo-500 bg-indigo-500 text-white"
                       )}
                     >
-                      {isCompleted ? (
-                        <Check className="h-4 w-4" />
-                      ) : (
-                        <Circle className="h-3 w-3" />
-                      )}
+                      <Check className="h-3 w-3" />
                     </div>
                     <span
                       className={cn(
-                        "mt-1.5 text-xs whitespace-nowrap",
-                        isCompleted
-                          ? "text-foreground font-medium"
-                          : "text-muted-foreground"
+                        "text-xs whitespace-nowrap font-medium",
+                        isCurrent ? "text-foreground" : "text-muted-foreground"
                       )}
                     >
-                      {status}
+                      {ORDER_STATUS_LABELS[status as OrderStatusEnum] ?? status}
                     </span>
                   </div>
-                  {index < STATUS_FLOW.length - 1 && (
-                    <div
-                      className={cn(
-                        "mx-2 h-0.5 flex-1 min-w-8",
-                        index < currentIndex
-                          ? "bg-indigo-500"
-                          : "bg-gray-200"
-                      )}
-                    />
+                  {index < arr.length - 1 && (
+                    <div className="mx-1 h-0.5 w-6 bg-indigo-400 shrink-0" />
                   )}
                 </div>
               );
             })}
           </div>
-          {(order.status === OrderStatusEnum.CANCELLED ||
-            order.status === OrderStatusEnum.RETURNED) && (
-            <div className="mt-3 text-center">
-              <Badge
-                variant="outline"
-                className={getOrderStatusColor(order.status)}
-              >
-                {order.status}
-              </Badge>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {/* Status Update */}
-      {allowedStatuses.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Update Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <Select
-                onValueChange={(val) =>
-                  setConfirmDialog({ open: true, status: val })
-                }
-              >
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Change status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allowedStatuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formHandle.isLoading &&
-                formHandle.loadingButtonType === "status" && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Update Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Select
+              onValueChange={(val) =>
+                setConfirmDialog({ open: true, status: val })
+              }
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Change status" />
+              </SelectTrigger>
+              <SelectContent>
+                {allowedStatuses.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {ORDER_STATUS_LABELS[s] ?? s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formHandle.isLoading &&
+              formHandle.loadingButtonType === "status" && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Status Change Confirmation Dialog */}
       <Dialog
@@ -389,9 +363,11 @@ export default function OrderDetailPage() {
             <DialogDescription>
               {confirmDialog.status === OrderStatusEnum.CANCELLED
                 ? "Cancelling this order will restore stock quantities, sync stock to WooCommerce, and cancel the Steadfast consignment. This action cannot be undone."
-                : confirmDialog.status === OrderStatusEnum.RETURNED
-                  ? "Marking this order as returned will restore stock quantities and sync stock to WooCommerce."
-                  : `Are you sure you want to change the order status from "${order.status}" to "${confirmDialog.status}"?`}
+                : confirmDialog.status === OrderStatusEnum.REFUNDED
+                  ? "Marking this order as refunded will restore stock quantities and sync stock to WooCommerce."
+                  : confirmDialog.status === OrderStatusEnum.FAILED
+                    ? "Marking this order as failed will restore stock quantities, sync stock to WooCommerce, and cancel the Steadfast consignment."
+                    : `Are you sure you want to change the order status from "${ORDER_STATUS_LABELS[order.status as OrderStatusEnum] ?? order.status}" to "${ORDER_STATUS_LABELS[confirmDialog.status as OrderStatusEnum] ?? confirmDialog.status}"?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -404,7 +380,8 @@ export default function OrderDetailPage() {
             <Button
               variant={
                 confirmDialog.status === OrderStatusEnum.CANCELLED ||
-                confirmDialog.status === OrderStatusEnum.RETURNED
+                confirmDialog.status === OrderStatusEnum.REFUNDED ||
+                confirmDialog.status === OrderStatusEnum.FAILED
                   ? "destructive"
                   : "default"
               }
@@ -456,6 +433,12 @@ export default function OrderDetailPage() {
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>{formatBDT(order.subtotal)}</span>
               </div>
+              {Number(order.discountAmount) > 0 && (
+                <div className="flex justify-between text-red-600">
+                  <span>Discount</span>
+                  <span>-{formatBDT(order.discountAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Shipping</span>
                 <span>{formatBDT(order.shippingFee)}</span>
@@ -463,6 +446,16 @@ export default function OrderDetailPage() {
               <div className="flex justify-between font-bold text-base pt-1">
                 <span>Grand Total (COD)</span>
                 <span>{formatBDT(order.grandTotal)}</span>
+              </div>
+              {Number(order.advanceAmount) > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Advance Payment</span>
+                  <span>-{formatBDT(order.advanceAmount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base">
+                <span>Due Amount</span>
+                <span>{formatBDT(Number(order.grandTotal) - Number(order.advanceAmount))}</span>
               </div>
             </div>
           </CardContent>
@@ -519,7 +512,7 @@ export default function OrderDetailPage() {
               <span className="font-medium">
                 {order.courierConsignmentId ?? (
                   <span className="text-red-500">
-                    Failed - Use Retry Courier
+                    Not sent - Use Push to Courier
                   </span>
                 )}
               </span>

@@ -2,16 +2,20 @@ import {
     Controller,
     Get,
     Post,
+    Body,
     Param,
     Query,
     Req,
     HttpCode,
     HttpStatus,
     UseGuards,
+    ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { WooCommerceService } from '../services/woocommerce.service.js';
 import { SyncLogsQueryDto } from '../dto/sync-logs-query.dto.js';
+import { FetchWcOrdersQueryDto } from '../dto/fetch-wc-orders-query.dto.js';
+import { SyncBulkOrdersDto } from '../dto/sync-bulk-orders.dto.js';
 import { Public } from '../../../core/decorators/public.decorator.js';
 import { Roles } from '../../../core/decorators/roles.decorator.js';
 import { RolesGuard } from '../../../core/guards/roles.guard.js';
@@ -107,6 +111,45 @@ export class WooCommerceController {
     @HttpCode(HttpStatus.OK)
     async syncSingleProduct(@Param('id') id: string) {
         return this.wooCommerceService.syncSingleProduct(id);
+    }
+
+    /**
+     * Browse WC orders with local sync status
+     * GET /api/woocommerce/orders/wc
+     */
+    @ApiBearerAuth()
+    @UseGuards(RolesGuard)
+    @Roles(UserRoleEnum.ADMIN)
+    @Get('orders/wc')
+    @HttpCode(HttpStatus.OK)
+    async fetchWcOrders(@Query() dto: FetchWcOrdersQueryDto) {
+        return this.wooCommerceService.fetchWcOrders(dto);
+    }
+
+    /**
+     * Bulk sync selected WC orders
+     * POST /api/woocommerce/sync/orders/bulk
+     */
+    @ApiBearerAuth()
+    @UseGuards(RolesGuard)
+    @Roles(UserRoleEnum.ADMIN)
+    @Post('sync/orders/bulk')
+    @HttpCode(HttpStatus.OK)
+    async syncBulkOrders(@Body() dto: SyncBulkOrdersDto) {
+        return this.wooCommerceService.syncBulkOrders(dto);
+    }
+
+    /**
+     * Sync a single WC order by its WooCommerce order ID
+     * POST /api/woocommerce/sync/orders/:wcOrderId
+     */
+    @ApiBearerAuth()
+    @UseGuards(RolesGuard)
+    @Roles(UserRoleEnum.ADMIN)
+    @Post('sync/orders/:wcOrderId')
+    @HttpCode(HttpStatus.OK)
+    async syncSingleOrder(@Param('wcOrderId', ParseIntPipe) wcOrderId: number) {
+        return this.wooCommerceService.syncSingleOrder(wcOrderId);
     }
 
     /**

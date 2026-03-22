@@ -7,6 +7,7 @@ import {
     IsUUID,
     IsOptional,
     IsInt,
+    IsNumber,
     Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -63,6 +64,24 @@ export class CreateOrderDto {
     })
     @IsEnum(ShippingPartnerEnum)
     shippingPartner: ShippingPartnerEnum;
+
+    @ApiPropertyOptional({
+        description: 'Discount amount (BDT) — reduces subtotal',
+        default: 0,
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    discountAmount?: number;
+
+    @ApiPropertyOptional({
+        description: 'Advance payment amount (BDT) — reduces due/COD amount',
+        default: 0,
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    advanceAmount?: number;
 
     @ApiProperty({
         description: 'Order line items',

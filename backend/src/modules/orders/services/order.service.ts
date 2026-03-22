@@ -25,6 +25,7 @@ import { WooCommerceService } from '../../woocommerce/services/woocommerce.servi
 import { IJwtPayload } from '../../../shared/interfaces/jwt-payload.js';
 import type { ImportOrdersResponseDto } from '../dto/import-orders.dto.js';
 import { restoreOrderItemsStock } from '../../../shared/utils/stock-restoration.util.js';
+import { normalizeBDPhone } from '../../../shared/utils/phone.util.js';
 
 const SHIPPING_FEES: Record<ShippingZoneEnum, number> = {
     [ShippingZoneEnum.INSIDE_DHAKA]: 80,
@@ -322,7 +323,9 @@ export class OrderService {
                     });
                 }
 
-                const grandTotal = subtotal + shippingFee;
+                const discountAmount = dto.discountAmount ?? 0;
+                const advanceAmount = dto.advanceAmount ?? 0;
+                const grandTotal = subtotal - discountAmount + shippingFee;
 
                 // 4. Generate QR code data URL (simple text-based URL for tracking)
                 const trackingUrl = `${process.env.FRONTEND_URL || 'http://localhost:8041'}/tracking/${invoiceId}`;
@@ -334,7 +337,8 @@ export class OrderService {
                     invoiceId,
                     createdById: user.id,
                     source: OrderSourceEnum.MANUAL,
-                    status: OrderStatusEnum.PENDING,
+                    status: OrderStatusEnum.PENDING_PAYMENT,
+                    statusHistory: [OrderStatusEnum.PENDING_PAYMENT],
                     customerName: dto.customerName,
                     customerPhone: dto.customerPhone,
                     customerAddress: dto.customerAddress,
@@ -343,6 +347,8 @@ export class OrderService {
                     shippingFee,
                     subtotal,
                     grandTotal,
+                    discountAmount,
+                    advanceAmount,
                     qrCodeDataUrl,
                 });
 
@@ -359,50 +365,13 @@ export class OrderService {
                     savedItems.push(savedItem);
                 }
 
-                // 7. Push to Steadfast (outside transaction - if it fails, order still created)
-                // We'll do this after the transaction commits
+                // 7. Courier push is manual — staff triggers via "Push to Courier" button
                 return {
                     order: { ...savedOrder, items: savedItems },
                     stockDecrementedProducts,
                 };
             })
             .then(async ({ order, stockDecrementedProducts: decremented }) => {
-                // Push to courier after transaction commits
-                try {
-                    if (
-                        order.shippingPartner === ShippingPartnerEnum.STEADFAST
-                    ) {
-                        const courierResult =
-                            await this.steadfastService.createOrder({
-                                invoice: order.invoiceId,
-                                recipient_name: order.customerName,
-                                recipient_phone: order.customerPhone,
-                                recipient_address: order.customerAddress,
-                                cod_amount: Number(order.grandTotal),
-                            });
-
-                        if (courierResult) {
-                            await this.orderRepository.update(order.id, {
-                                courierConsignmentId:
-                                    courierResult.consignmentId,
-                                courierTrackingCode: courierResult.trackingCode,
-                            });
-                            order.courierConsignmentId =
-                                courierResult.consignmentId;
-                            order.courierTrackingCode =
-                                courierResult.trackingCode;
-                        } else {
-                            this.logger.warn(
-                                `Steadfast push failed for order ${order.invoiceId}. Order created without consignment.`,
-                            );
-                        }
-                    }
-                } catch (err: any) {
-                    this.logger.error(
-                        `Post-transaction courier push failed for ${order.invoiceId}: ${err.message}`,
-                    );
-                }
-
                 // Push updated stock to WooCommerce (non-blocking)
                 for (const item of decremented) {
                     this.wooCommerceService
@@ -425,11 +394,11 @@ export class OrderService {
         const existingOrder = await this.getOrderById(id);
 
         if (
-            existingOrder.status !== OrderStatusEnum.PENDING &&
-            existingOrder.status !== OrderStatusEnum.CONFIRMED
+            existingOrder.status !== OrderStatusEnum.PENDING_PAYMENT &&
+            existingOrder.status !== OrderStatusEnum.ON_HOLD
         ) {
             throw new BadRequestException(
-                `Order can only be edited in PENDING or CONFIRMED status. Current status: ${existingOrder.status}`,
+                `Order can only be edited in Pending payment or On hold status. Current status: ${existingOrder.status}`,
             );
         }
 
@@ -586,7 +555,9 @@ export class OrderService {
                     });
                 }
 
-                const grandTotal = subtotal + shippingFee;
+                const discountAmount = dto.discountAmount ?? 0;
+                const advanceAmount = dto.advanceAmount ?? 0;
+                const grandTotal = subtotal - discountAmount + shippingFee;
 
                 // 4. Update order
                 await manager.update(Order, id, {
@@ -598,6 +569,8 @@ export class OrderService {
                     shippingFee,
                     subtotal,
                     grandTotal,
+                    discountAmount,
+                    advanceAmount,
                 });
 
                 // 5. Create new items
@@ -637,7 +610,9 @@ export class OrderService {
                                 recipient_name: order.customerName,
                                 recipient_phone: order.customerPhone,
                                 recipient_address: order.customerAddress,
-                                cod_amount: Number(order.grandTotal),
+                                cod_amount:
+                                    Number(order.grandTotal) -
+                                    Number(order.advanceAmount),
                             });
 
                         if (courierResult) {
@@ -696,11 +671,11 @@ export class OrderService {
         const order = await this.getOrderById(id);
 
         if (
-            order.status !== OrderStatusEnum.PENDING &&
-            order.status !== OrderStatusEnum.CONFIRMED
+            order.status !== OrderStatusEnum.PENDING_PAYMENT &&
+            order.status !== OrderStatusEnum.ON_HOLD
         ) {
             throw new BadRequestException(
-                `Order can only be edited in PENDING or CONFIRMED status. Current status: ${order.status}`,
+                `Order can only be edited in Pending payment or On hold status. Current status: ${order.status}`,
             );
         }
 
@@ -716,63 +691,76 @@ export class OrderService {
             updateData.customerAddress = dto.customerAddress;
         }
 
-        // Recalculate shipping fee and grand total if zone changed
-        if (
-            dto.shippingZone !== undefined &&
-            dto.shippingZone !== order.shippingZone
-        ) {
-            const newShippingFee = SHIPPING_FEES[dto.shippingZone];
-            updateData.shippingZone = dto.shippingZone;
-            updateData.shippingFee = newShippingFee;
-            updateData.grandTotal = Number(order.subtotal) + newShippingFee;
+        if (dto.discountAmount !== undefined) {
+            updateData.discountAmount = dto.discountAmount;
+        }
+        if (dto.advanceAmount !== undefined) {
+            updateData.advanceAmount = dto.advanceAmount;
+        }
+
+        // Recalculate grand total if zone, discount, or advance changed
+        const needsRecalc =
+            (dto.shippingZone !== undefined &&
+                dto.shippingZone !== order.shippingZone) ||
+            dto.discountAmount !== undefined ||
+            dto.advanceAmount !== undefined;
+
+        if (needsRecalc) {
+            const newShippingFee = dto.shippingZone
+                ? SHIPPING_FEES[dto.shippingZone]
+                : Number(order.shippingFee);
+            const newDiscount =
+                dto.discountAmount ?? Number(order.discountAmount);
+
+            if (
+                dto.shippingZone !== undefined &&
+                dto.shippingZone !== order.shippingZone
+            ) {
+                updateData.shippingZone = dto.shippingZone;
+                updateData.shippingFee = newShippingFee;
+            }
+
+            updateData.grandTotal =
+                Number(order.subtotal) - newDiscount + newShippingFee;
         }
 
         await this.orderRepository.update(id, updateData);
 
-        // Determine if consignment-relevant fields changed (name, phone, address, or amount)
-        const consignmentDetailsChanged =
-            dto.customerName !== undefined ||
-            dto.customerPhone !== undefined ||
-            dto.customerAddress !== undefined ||
-            (dto.shippingZone !== undefined &&
-                dto.shippingZone !== order.shippingZone);
+        // Push WC order notes for advance/discount changes (non-blocking, fire-and-forget)
+        if (order.wcOrderId) {
+            const oldDiscount = Number(order.discountAmount);
+            const oldAdvance = Number(order.advanceAmount);
 
-        // Re-push to Steadfast if consignment details changed and partner is Steadfast
-        if (
-            consignmentDetailsChanged &&
-            order.courierConsignmentId &&
-            order.shippingPartner === ShippingPartnerEnum.STEADFAST
-        ) {
-            // Cancel old consignment
-            await this.steadfastService.cancelOrder(order.courierConsignmentId);
+            if (
+                dto.discountAmount !== undefined &&
+                dto.discountAmount !== oldDiscount
+            ) {
+                const note =
+                    dto.discountAmount > 0
+                        ? `Discount amount updated to ${dto.discountAmount} BDT from Glam Lavish Inventory System`
+                        : `Discount amount removed from Glam Lavish Inventory System`;
+                this.wooCommerceService.pushOrderNoteToWc(
+                    order.wcOrderId,
+                    note,
+                );
+            }
 
-            // Get updated order data
-            const updatedOrder = await this.orderRepository.findOne({
-                where: { id },
-            });
-
-            if (updatedOrder) {
-                const courierResult = await this.steadfastService.createOrder({
-                    invoice: updatedOrder.invoiceId,
-                    recipient_name: updatedOrder.customerName,
-                    recipient_phone: updatedOrder.customerPhone,
-                    recipient_address: updatedOrder.customerAddress,
-                    cod_amount: Number(updatedOrder.grandTotal),
-                });
-
-                if (courierResult) {
-                    await this.orderRepository.update(id, {
-                        courierConsignmentId: courierResult.consignmentId,
-                        courierTrackingCode: courierResult.trackingCode,
-                    });
-                } else {
-                    await this.orderRepository.update(id, {
-                        courierConsignmentId: null,
-                        courierTrackingCode: null,
-                    });
-                }
+            if (
+                dto.advanceAmount !== undefined &&
+                dto.advanceAmount !== oldAdvance
+            ) {
+                const note =
+                    dto.advanceAmount > 0
+                        ? `Advance amount updated to ${dto.advanceAmount} BDT from Glam Lavish Inventory System`
+                        : `Advance amount removed from Glam Lavish Inventory System`;
+                this.wooCommerceService.pushOrderNoteToWc(
+                    order.wcOrderId,
+                    note,
+                );
             }
         }
+
+        // Courier re-push is manual — staff triggers via "Push to Courier" button after editing
 
         // Return updated order with items
         return this.getOrderById(id);
@@ -805,21 +793,30 @@ export class OrderService {
             courierCancelled: false,
         };
 
-        if (
-            dto.status === OrderStatusEnum.CANCELLED ||
-            dto.status === OrderStatusEnum.RETURNED
-        ) {
-            // Restore stock for all items
-            const reasonText =
-                dto.status === OrderStatusEnum.CANCELLED
-                    ? 'Order Cancelled'
-                    : 'Order Returned';
+        const stockRestoreStatuses = [
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.REFUNDED,
+            OrderStatusEnum.FAILED,
+            OrderStatusEnum.DRAFT,
+        ];
+        const courierCancelStatuses = [
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.FAILED,
+        ];
+
+        if (stockRestoreStatuses.includes(dto.status)) {
+            const reasonMap: Record<string, string> = {
+                [OrderStatusEnum.CANCELLED]: 'Order Cancelled',
+                [OrderStatusEnum.REFUNDED]: 'Order Refunded',
+                [OrderStatusEnum.FAILED]: 'Order Failed',
+                [OrderStatusEnum.DRAFT]: 'Order Reverted to Draft',
+            };
             await this.dataSource.transaction(async (manager) => {
                 await restoreOrderItemsStock(
                     manager,
                     order.items,
                     user.id,
-                    reasonText,
+                    reasonMap[dto.status],
                     order.invoiceId,
                 );
             });
@@ -838,9 +835,9 @@ export class OrderService {
                 }
             }
 
-            // Cancel courier for CANCELLED only (not RETURNED)
+            // Cancel courier for CANCELLED and FAILED only
             if (
-                dto.status === OrderStatusEnum.CANCELLED &&
+                courierCancelStatuses.includes(dto.status) &&
                 order.courierConsignmentId
             ) {
                 const cancelled = await this.steadfastService.cancelOrder(
@@ -850,7 +847,11 @@ export class OrderService {
             }
         }
 
-        await this.orderRepository.update(id, { status: dto.status });
+        const updatedHistory = [...(order.statusHistory || []), dto.status];
+        await this.orderRepository.update(id, {
+            status: dto.status,
+            statusHistory: updatedHistory,
+        });
 
         return result;
     }
@@ -1127,32 +1128,74 @@ export class OrderService {
 
     /**
      * Validate order status transitions
+     * Free transitions: any status can move to any other status.
+     * Only blocks transitioning to the same status.
      */
     private validateStatusTransition(
         currentStatus: OrderStatusEnum,
         newStatus: OrderStatusEnum,
     ): void {
-        const allowedTransitions: Record<OrderStatusEnum, OrderStatusEnum[]> = {
-            [OrderStatusEnum.PENDING]: [
-                OrderStatusEnum.CONFIRMED,
-                OrderStatusEnum.CANCELLED,
-            ],
-            [OrderStatusEnum.CONFIRMED]: [
-                OrderStatusEnum.PROCESSING,
-                OrderStatusEnum.CANCELLED,
-            ],
-            [OrderStatusEnum.PROCESSING]: [OrderStatusEnum.SHIPPED],
-            [OrderStatusEnum.SHIPPED]: [OrderStatusEnum.DELIVERED],
-            [OrderStatusEnum.DELIVERED]: [OrderStatusEnum.RETURNED],
-            [OrderStatusEnum.CANCELLED]: [],
-            [OrderStatusEnum.RETURNED]: [],
-        };
-
-        const allowed = allowedTransitions[currentStatus];
-        if (!allowed || !allowed.includes(newStatus)) {
+        if (currentStatus === newStatus) {
             throw new BadRequestException(
-                `Cannot transition from ${currentStatus} to ${newStatus}`,
+                `Order is already in ${currentStatus} status`,
             );
         }
+    }
+
+    /**
+     * Get customer order history stats by phone number
+     */
+    async getCustomerHistory(phone: string): Promise<{
+        completed: number;
+        refunded: number;
+        cancelled: number;
+        total: number;
+        names: string[];
+        addresses: string[];
+    }> {
+        const normalized = normalizeBDPhone(phone);
+        const phoneWhereClause = `REPLACE(REPLACE(order.customer_phone, '+880', ''), '880', '') = :normalized`;
+
+        const [result, identities] = await Promise.all([
+            this.orderRepository
+                .createQueryBuilder('order')
+                .select([
+                    `COUNT(*) FILTER (WHERE order.status = :completed) AS "completed"`,
+                    `COUNT(*) FILTER (WHERE order.status = :refunded) AS "refunded"`,
+                    `COUNT(*) FILTER (WHERE order.status = :cancelled) AS "cancelled"`,
+                    `COUNT(*) AS "total"`,
+                ])
+                .where(phoneWhereClause, {
+                    normalized,
+                    completed: OrderStatusEnum.COMPLETED,
+                    refunded: OrderStatusEnum.REFUNDED,
+                    cancelled: OrderStatusEnum.CANCELLED,
+                })
+                .getRawOne(),
+            this.orderRepository
+                .createQueryBuilder('order')
+                .select('order.customer_name', 'name')
+                .addSelect('order.customer_address', 'address')
+                .where(phoneWhereClause, { normalized })
+                .groupBy('order.customer_name')
+                .addGroupBy('order.customer_address')
+                .getRawMany(),
+        ]);
+
+        const names = [
+            ...new Set(identities.map((r: { name: string }) => r.name)),
+        ];
+        const addresses = [
+            ...new Set(identities.map((r: { address: string }) => r.address)),
+        ];
+
+        return {
+            completed: parseInt(result?.completed, 10) || 0,
+            refunded: parseInt(result?.refunded, 10) || 0,
+            cancelled: parseInt(result?.cancelled, 10) || 0,
+            total: parseInt(result?.total, 10) || 0,
+            names,
+            addresses,
+        };
     }
 }

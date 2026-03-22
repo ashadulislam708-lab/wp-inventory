@@ -43,9 +43,9 @@ export class Order {
 
     @Index('IDX_orders_status')
     @Column({
-        type: 'enum',
-        enum: OrderStatusEnum,
-        default: OrderStatusEnum.PENDING,
+        type: 'varchar',
+        length: 50,
+        default: OrderStatusEnum.PENDING_PAYMENT,
     })
     status: OrderStatusEnum;
 
@@ -87,6 +87,24 @@ export class Order {
     @Column({ name: 'grand_total', type: 'decimal', precision: 10, scale: 2 })
     grandTotal: number;
 
+    @Column({
+        name: 'discount_amount',
+        type: 'decimal',
+        precision: 10,
+        scale: 2,
+        default: 0,
+    })
+    discountAmount: number;
+
+    @Column({
+        name: 'advance_amount',
+        type: 'decimal',
+        precision: 10,
+        scale: 2,
+        default: 0,
+    })
+    advanceAmount: number;
+
     @Index('IDX_orders_courier_consignment_id')
     @Column({
         name: 'courier_consignment_id',
@@ -118,6 +136,13 @@ export class Order {
         nullable: true,
     })
     wcShippingCost: number | null;
+
+    @Column({
+        name: 'status_history',
+        type: 'jsonb',
+        default: '[]',
+    })
+    statusHistory: string[];
 
     @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
     items: OrderItem[];

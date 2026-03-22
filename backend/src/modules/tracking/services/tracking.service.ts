@@ -76,21 +76,23 @@ export class TrackingService {
      */
     private buildTimeline(order: Order): StatusTimelineEntry[] {
         const progressStatuses = [
-            OrderStatusEnum.PENDING,
-            OrderStatusEnum.CONFIRMED,
+            OrderStatusEnum.PENDING_PAYMENT,
+            OrderStatusEnum.ON_HOLD,
             OrderStatusEnum.PROCESSING,
-            OrderStatusEnum.SHIPPED,
-            OrderStatusEnum.DELIVERED,
+            OrderStatusEnum.COMPLETED,
         ];
 
-        // If cancelled or returned, show a simpler timeline
-        if (
-            order.status === OrderStatusEnum.CANCELLED ||
-            order.status === OrderStatusEnum.RETURNED
-        ) {
+        const terminalStatuses = [
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.REFUNDED,
+            OrderStatusEnum.FAILED,
+        ];
+
+        // If in a terminal status, show a simpler timeline
+        if (terminalStatuses.includes(order.status)) {
             return [
                 {
-                    status: 'PENDING',
+                    status: 'Pending payment',
                     timestamp: order.createdAt.toISOString(),
                     active: true,
                 },

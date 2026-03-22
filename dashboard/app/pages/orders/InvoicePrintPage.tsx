@@ -257,7 +257,7 @@ export default function InvoicePrintPage() {
           >
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Discount:</span>
-              <span>0 TK</span>
+              <span>{invoice.discountAmount ?? 0} TK</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Sub Total:</span>
@@ -284,7 +284,7 @@ export default function InvoicePrintPage() {
               }}
             >
               <span>Advance Payment:</span>
-              <span>0 TK</span>
+              <span>{invoice.advanceAmount ?? 0} TK</span>
             </div>
             <div
               style={{

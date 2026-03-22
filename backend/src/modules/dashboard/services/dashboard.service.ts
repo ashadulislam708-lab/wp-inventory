@@ -49,14 +49,14 @@ export class DashboardService {
 
         // Pending orders count
         const pendingOrdersCount = await this.orderRepository.count({
-            where: { status: OrderStatusEnum.PENDING },
+            where: { status: OrderStatusEnum.PENDING_PAYMENT },
         });
 
         // Failed courier count (orders with null consignment ID)
         const failedCourierCount = await this.orderRepository.count({
             where: {
                 courierConsignmentId: IsNull(),
-                status: OrderStatusEnum.PENDING,
+                status: OrderStatusEnum.PENDING_PAYMENT,
             },
         });
 

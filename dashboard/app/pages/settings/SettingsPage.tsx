@@ -79,6 +79,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "~/lib/utils";
+import WcOrderBrowser from "./components/WcOrderBrowser";
 import type { FormHandleState } from "~/types/common";
 import type { WcConnectionStatus, SyncLog, ImportResult } from "~/types/settings";
 import type { User } from "~/types/user";
@@ -491,6 +492,8 @@ function SettingsContent() {
               )}
             </CardContent>
           </Card>
+
+          <WcOrderBrowser />
         </TabsContent>
 
         {/* Users Tab */}
