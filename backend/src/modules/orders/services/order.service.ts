@@ -94,6 +94,13 @@ export class OrderService {
             );
         }
 
+        if (dto.ids) {
+            const idList = dto.ids.split(',').map((id) => id.trim()).filter(Boolean);
+            if (idList.length > 0) {
+                qb.andWhere('order.id IN (:...idList)', { idList });
+            }
+        }
+
         qb.orderBy('order.createdAt', 'DESC');
         qb.skip(skip).take(limit);
 
@@ -670,12 +677,15 @@ export class OrderService {
     async updateOrderDetails(id: string, dto: UpdateOrderDto) {
         const order = await this.getOrderById(id);
 
-        if (
-            order.status !== OrderStatusEnum.PENDING_PAYMENT &&
-            order.status !== OrderStatusEnum.ON_HOLD
-        ) {
+        const terminalStatuses = [
+            OrderStatusEnum.COMPLETED,
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.REFUNDED,
+            OrderStatusEnum.FAILED,
+        ];
+        if (terminalStatuses.includes(order.status as OrderStatusEnum)) {
             throw new BadRequestException(
-                `Order can only be edited in Pending payment or On hold status. Current status: ${order.status}`,
+                `Order cannot be edited in ${order.status} status`,
             );
         }
 
@@ -911,7 +921,9 @@ export class OrderService {
             recipient_name: order.customerName,
             recipient_phone: order.customerPhone,
             recipient_address: order.customerAddress,
-            cod_amount: Number(order.grandTotal),
+            cod_amount:
+                Number(order.grandTotal) -
+                Number(order.advanceAmount),
         });
 
         if (!courierResult) {
@@ -930,6 +942,151 @@ export class OrderService {
             invoiceId: order.invoiceId,
             courierConsignmentId: courierResult.consignmentId,
             courierTrackingCode: courierResult.trackingCode,
+        };
+    }
+
+    /**
+     * Bulk push selected orders to Steadfast courier
+     */
+    async bulkPushCourier(dto: { orderIds: string[] }) {
+        const orders = await this.orderRepository.find({
+            where: dto.orderIds.map((id) => ({ id })),
+        });
+
+        const terminalStatuses = [
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.REFUNDED,
+        ];
+
+        type ResultItem = {
+            invoiceId: string;
+            status: string;
+            consignmentId?: string;
+            error?: string;
+        };
+
+        const eligible: typeof orders = [];
+        const skippedResults: ResultItem[] = [];
+
+        // Categorize each order as eligible or skipped with reason
+        for (const o of orders) {
+            if (o.courierConsignmentId) {
+                skippedResults.push({
+                    invoiceId: o.invoiceId,
+                    status: 'skipped',
+                    error: 'Already pushed to courier',
+                });
+            } else if (
+                o.shippingPartner !== ShippingPartnerEnum.STEADFAST
+            ) {
+                skippedResults.push({
+                    invoiceId: o.invoiceId,
+                    status: 'skipped',
+                    error: 'Not a Steadfast order',
+                });
+            } else if (
+                terminalStatuses.includes(o.status as OrderStatusEnum)
+            ) {
+                skippedResults.push({
+                    invoiceId: o.invoiceId,
+                    status: 'skipped',
+                    error: `Order is ${o.status}`,
+                });
+            } else {
+                eligible.push(o);
+            }
+        }
+
+        // Handle orderIds not found in DB
+        const foundIds = new Set(orders.map((o) => o.id));
+        for (const id of dto.orderIds) {
+            if (!foundIds.has(id)) {
+                skippedResults.push({
+                    invoiceId: id,
+                    status: 'skipped',
+                    error: 'Order not found',
+                });
+            }
+        }
+
+        const skipped = skippedResults.length;
+
+        if (eligible.length === 0) {
+            return {
+                pushed: 0,
+                skipped,
+                errors: 0,
+                results: skippedResults,
+            };
+        }
+
+        const requests = eligible.map((order) => ({
+            invoice: order.invoiceId,
+            recipient_name: order.customerName,
+            recipient_phone: order.customerPhone,
+            recipient_address: order.customerAddress,
+            cod_amount:
+                Number(order.grandTotal) - Number(order.advanceAmount),
+        }));
+
+        const bulkResult =
+            await this.steadfastService.createBulkOrder(requests);
+
+        if (!bulkResult) {
+            return {
+                pushed: 0,
+                skipped,
+                errors: eligible.length,
+                results: [
+                    ...skippedResults,
+                    ...eligible.map((o) => ({
+                        invoiceId: o.invoiceId,
+                        status: 'error' as const,
+                        error: 'Steadfast API call failed',
+                    })),
+                ],
+            };
+        }
+
+        // Build invoice-to-order map for matching results
+        const orderByInvoice = new Map(
+            eligible.map((o) => [o.invoiceId, o]),
+        );
+
+        let pushed = 0;
+        let errors = 0;
+        const pushResults: ResultItem[] = [];
+
+        for (const item of bulkResult) {
+            const order = orderByInvoice.get(item.invoice);
+            if (!order) continue;
+
+            if (item.status === 'success' && item.consignment_id) {
+                await this.orderRepository.update(order.id, {
+                    courierConsignmentId: String(item.consignment_id),
+                    courierTrackingCode: item.tracking_code ?? undefined,
+                });
+                pushed++;
+                pushResults.push({
+                    invoiceId: item.invoice,
+                    status: 'success',
+                    consignmentId: String(item.consignment_id),
+                });
+            } else {
+                errors++;
+                pushResults.push({
+                    invoiceId: item.invoice,
+                    status: 'error',
+                    error: 'Steadfast rejected this order',
+                });
+            }
+        }
+
+        return {
+            pushed,
+            skipped,
+            errors,
+            results: [...pushResults, ...skippedResults],
         };
     }
 

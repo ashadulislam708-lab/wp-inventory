@@ -65,6 +65,7 @@ export interface FetchOrdersParams {
   startDate?: string;
   endDate?: string;
   search?: string;
+  ids?: string;
 }
 
 export interface InvoiceData {
@@ -103,7 +104,7 @@ export interface CustomerOrderHistory {
 export interface OrderNote {
   id: string;
   content: string;
-  createdBy: string;
+  createdBy: { id: string; name: string; email: string } | null;
   createdAt: string;
 }
 

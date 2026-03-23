@@ -5,6 +5,7 @@ import { OrderNote } from '../entities/order-note.entity.js';
 import { Order } from '../entities/order.entity.js';
 import { CreateOrderNoteDto } from '../dto/create-order-note.dto.js';
 import { IJwtPayload } from '../../../shared/interfaces/jwt-payload.js';
+import { WooCommerceService } from '../../woocommerce/services/woocommerce.service.js';
 
 @Injectable()
 export class OrderNoteService {
@@ -15,6 +16,7 @@ export class OrderNoteService {
         private readonly orderNoteRepository: Repository<OrderNote>,
         @InjectRepository(Order)
         private readonly orderRepository: Repository<Order>,
+        private readonly wooCommerceService: WooCommerceService,
     ) {}
 
     /**
@@ -45,6 +47,17 @@ export class OrderNoteService {
         this.logger.log(
             `Note added to order ${order.invoiceId} by user ${user.id}`,
         );
+
+        // Push note to WooCommerce if this is a WC order
+        if (order.wcOrderId) {
+            this.wooCommerceService
+                .addOrderNote(order.wcOrderId, dto.content)
+                .catch((err) =>
+                    this.logger.error(
+                        `Failed to push note to WC order ${order.wcOrderId}: ${err.message}`,
+                    ),
+                );
+        }
 
         // Return with createdBy relation loaded
         return this.orderNoteRepository.findOne({

@@ -24,6 +24,7 @@ import { UpdateOrderStatusDto } from '../dto/update-order-status.dto.js';
 import { ListOrdersDto } from '../dto/list-orders.dto.js';
 import { CreateOrderNoteDto } from '../dto/create-order-note.dto.js';
 import { CustomerHistoryQueryDto } from '../dto/customer-history-query.dto.js';
+import { BulkPushCourierDto } from '../dto/bulk-push-courier.dto.js';
 import { CurrentUser } from '../../../core/decorators/current-user.decorator.js';
 import { Roles } from '../../../core/decorators/roles.decorator.js';
 import { RolesGuard } from '../../../core/guards/roles.guard.js';
@@ -60,7 +61,7 @@ export class OrderController {
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader(
             'Content-Disposition',
-            `attachment; filename=orders-${new Date().toISOString().split('T')[0]}.csv`,
+            `attachment; filename=orders-${crypto.randomUUID()}.csv`,
         );
         res.send(csv);
     }
@@ -125,6 +126,16 @@ export class OrderController {
         }
 
         return this.orderService.importOrdersFromCsv(file.buffer, user);
+    }
+
+    /**
+     * Bulk push selected orders to Steadfast courier
+     * POST /api/orders/bulk-push-courier
+     */
+    @Post('bulk-push-courier')
+    @HttpCode(HttpStatus.OK)
+    async bulkPushCourier(@Body() dto: BulkPushCourierDto) {
+        return this.orderService.bulkPushCourier(dto);
     }
 
     /**

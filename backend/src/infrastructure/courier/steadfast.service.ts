@@ -106,6 +106,72 @@ export class SteadfastService {
     }
 
     /**
+     * Bulk create consignment orders on Steadfast
+     * Returns array of per-item results or null if API call fails entirely
+     */
+    /**
+     * Bulk create orders by calling single createOrder endpoint sequentially.
+     * Steadfast bulk endpoint (/create_order/bulk-order) is unreliable (returns 500),
+     * so we use the single endpoint which works reliably.
+     */
+    async createBulkOrder(
+        requests: SteadfastCreateOrderRequest[],
+    ): Promise<
+        Array<{
+            invoice: string;
+            consignment_id: number | string | null;
+            tracking_code: string | null;
+            status: string;
+        }> | null
+    > {
+        const config = envConfigService.getSteadfastConfig();
+
+        if (!config.STEADFAST_API_KEY || !config.STEADFAST_SECRET_KEY) {
+            this.logger.warn(
+                'Steadfast API credentials not configured. Skipping bulk courier push.',
+            );
+            return null;
+        }
+
+        this.logger.log(
+            `Steadfast bulk push: ${requests.length} orders (sequential)`,
+        );
+
+        const results: Array<{
+            invoice: string;
+            consignment_id: number | string | null;
+            tracking_code: string | null;
+            status: string;
+        }> = [];
+
+        for (const request of requests) {
+            const result = await this.createOrder(request);
+            if (result) {
+                results.push({
+                    invoice: request.invoice,
+                    consignment_id: result.consignmentId,
+                    tracking_code: result.trackingCode,
+                    status: 'success',
+                });
+            } else {
+                results.push({
+                    invoice: request.invoice,
+                    consignment_id: null,
+                    tracking_code: null,
+                    status: 'error',
+                });
+            }
+        }
+
+        const successCount = results.filter((r) => r.status === 'success').length;
+        this.logger.log(
+            `Steadfast bulk result: ${successCount}/${results.length} successful`,
+        );
+
+        return results;
+    }
+
+    /**
      * Cancel a consignment via return request
      * Note: Official API uses create_return_request, not cancel_order
      */

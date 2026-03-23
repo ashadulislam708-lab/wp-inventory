@@ -38,6 +38,7 @@ export interface Product {
   syncStatus: SyncStatusEnum;
   category: ProductCategory | null;
   wcPermalink?: string | null;
+  variations?: ProductVariation[];
 }
 
 export interface ProductDetail extends Product {

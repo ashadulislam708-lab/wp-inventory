@@ -54,11 +54,16 @@ export interface BulkSyncResult {
 }
 
 export interface ImportResult {
-  imported: number;
-  updated: number;
+  imported?: number;
+  updated?: number;
+  synced?: number;
   errors: number;
-  details: {
+  details?: {
     wcId: number;
+    error: string;
+  }[];
+  errorDetails?: {
+    wcOrderId: number;
     error: string;
   }[];
 }

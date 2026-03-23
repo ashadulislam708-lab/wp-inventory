@@ -35,6 +35,16 @@ export const productService = {
 
   syncProduct: (id: string) =>
     httpService.post<{ status: string }>(`/woocommerce/sync/products/${id}`, undefined, { timeout: 60000 }),
+
+  syncBulkProducts: (productIds: string[]) =>
+    httpService.post<{ synced: number; errors: number; results: { productId: string; status?: string; error?: string }[] }>(
+      "/woocommerce/sync/products/bulk",
+      { productIds },
+      { timeout: 120000 },
+    ),
+
+  exportProducts: (params?: FetchProductsParams & { ids?: string }) =>
+    httpService.getBlob("/products/export", { params }),
 };
 
 export const fetchProducts = createAsyncThunk(

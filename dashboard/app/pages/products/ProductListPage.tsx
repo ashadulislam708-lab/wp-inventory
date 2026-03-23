@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAppDispatch, useAppSelector } from "~/redux/store/hooks";
-import { fetchProducts, fetchCategories } from "~/services/httpServices/productService";
+import { fetchProducts, fetchCategories, productService } from "~/services/httpServices/productService";
 import { settingsService } from "~/services/httpServices/settingsService";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -33,7 +33,7 @@ import {
 } from "~/utils/badges";
 import { cn } from "~/lib/utils";
 import { StockStatusEnum } from "~/enums";
-import { Search, Download, Loader2, Eye, ExternalLink } from "lucide-react";
+import { Search, Download, Loader2, Eye, ExternalLink, RefreshCw, FileDown, X } from "lucide-react";
 import { toast } from "sonner";
 import type { FormHandleState } from "~/types/common";
 
@@ -52,6 +52,37 @@ export default function ProductListPage() {
     isLoading: false,
     loadingButtonType: "",
   });
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const allSelected =
+    products.length > 0 && products.every((p) => selectedIds.has(p.id));
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map((p) => p.id)));
+    }
+  }, [allSelected, products]);
+
+  // Clear selection on page/filter change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [page, search, category, stockStatus]);
 
   const loadProducts = useCallback(() => {
     dispatch(
@@ -102,6 +133,62 @@ export default function ProductListPage() {
       });
   }, [loadProducts]);
 
+  const handleBulkSync = useCallback(() => {
+    if (selectedIds.size === 0) {
+      toast.warning("No products selected");
+      return;
+    }
+    setFormHandle({ isLoading: true, loadingButtonType: "bulkSync" });
+    productService
+      .syncBulkProducts(Array.from(selectedIds))
+      .then((result) => {
+        toast.success(
+          `Synced ${result.synced} product(s), ${result.errors} error(s)`
+        );
+        setSelectedIds(new Set());
+        loadProducts();
+      })
+      .catch((err: unknown) => {
+        toast.error((err as { message?: string })?.message || "Bulk sync failed");
+      })
+      .finally(() => {
+        setFormHandle({ isLoading: false, loadingButtonType: "" });
+      });
+  }, [selectedIds, loadProducts]);
+
+  const handleExportCSV = useCallback(() => {
+    setFormHandle({ isLoading: true, loadingButtonType: "export" });
+    const params: Record<string, string | undefined> = {
+      search: search || undefined,
+      category: category || undefined,
+      stockStatus: stockStatus || undefined,
+    };
+    if (selectedIds.size > 0) {
+      (params as Record<string, string | undefined>).ids = Array.from(selectedIds).join(",");
+    }
+    productService
+      .exportProducts(params)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `products-${crypto.randomUUID()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("CSV exported successfully");
+      })
+      .catch((err: unknown) => {
+        toast.error((err as { message?: string })?.message || "Export failed");
+      })
+      .finally(() => {
+        setFormHandle({ isLoading: false, loadingButtonType: "" });
+      });
+  }, [search, category, stockStatus, selectedIds]);
+
+  const isBulkSyncing = formHandle.isLoading && formHandle.loadingButtonType === "bulkSync";
+  const isExporting = formHandle.isLoading && formHandle.loadingButtonType === "export";
+  const isImporting = formHandle.isLoading && formHandle.loadingButtonType === "import";
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -112,9 +199,9 @@ export default function ProductListPage() {
         <Button
           variant="outline"
           onClick={handleImport}
-          disabled={formHandle.isLoading && formHandle.loadingButtonType === "import"}
+          disabled={isImporting}
         >
-          {formHandle.isLoading && formHandle.loadingButtonType === "import" ? (
+          {isImporting ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Download className="mr-2 h-4 w-4" />
@@ -190,9 +277,9 @@ export default function ProductListPage() {
                 variant="outline"
                 className="mt-4"
                 onClick={handleImport}
-                disabled={formHandle.isLoading && formHandle.loadingButtonType === "import"}
+                disabled={isImporting}
               >
-                {formHandle.isLoading && formHandle.loadingButtonType === "import" ? (
+                {isImporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
@@ -202,10 +289,58 @@ export default function ProductListPage() {
             </div>
           ) : (
             <>
+              {/* Bulk Action Bar */}
+              {selectedIds.size > 0 && (
+                <div className="mb-4 flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-2">
+                  <span className="text-sm font-medium">
+                    {selectedIds.size} product{selectedIds.size > 1 ? "s" : ""} selected
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={handleBulkSync}
+                    disabled={isBulkSyncing}
+                  >
+                    {isBulkSyncing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sync Products
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportCSV}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileDown className="mr-2 h-4 w-4" />
+                    )}
+                    Export CSV
+                  </Button>
+                  <button
+                    className="ml-auto text-muted-foreground hover:text-foreground"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                      </TableHead>
                       <TableHead>Image</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>SKU</TableHead>
@@ -221,6 +356,7 @@ export default function ProductListPage() {
                     {products.map((product) => (
                       <TableRow
                         key={product.id}
+                        data-state={selectedIds.has(product.id) ? "selected" : undefined}
                         className={cn(
                           "cursor-pointer hover:bg-gray-50",
                           product.stockQuantity <= 0 && "bg-red-50",
@@ -230,6 +366,15 @@ export default function ProductListPage() {
                         )}
                         onClick={() => navigate(`/products/${product.id}`)}
                       >
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(product.id)}
+                            onChange={() => toggleSelect(product.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                        </TableCell>
                         <TableCell>
                           {product.imageUrl ? (
                             <img
@@ -277,19 +422,33 @@ export default function ProductListPage() {
                           {product.stockQuantity}
                         </TableCell>
                         <TableCell>
-                          {product.salePrice ? (
-                            <div>
-                              <span className="text-muted-foreground line-through text-xs">
-                                {formatBDT(product.regularPrice)}
-                              </span>
-                              <br />
-                              <span className="font-medium">
-                                {formatBDT(product.salePrice)}
-                              </span>
-                            </div>
-                          ) : (
-                            formatBDT(product.regularPrice)
-                          )}
+                          {(() => {
+                            const firstVariation =
+                              product.type === "VARIABLE" &&
+                              product.variations &&
+                              product.variations.length > 0
+                                ? product.variations[0]
+                                : null;
+                            const displayPrice = firstVariation
+                              ? firstVariation.regularPrice
+                              : product.regularPrice;
+                            const displaySalePrice = firstVariation
+                              ? firstVariation.salePrice
+                              : product.salePrice;
+                            return displaySalePrice ? (
+                              <div>
+                                <span className="text-muted-foreground line-through text-xs">
+                                  {formatBDT(displayPrice)}
+                                </span>
+                                <br />
+                                <span className="font-medium">
+                                  {formatBDT(displaySalePrice)}
+                                </span>
+                              </div>
+                            ) : (
+                              formatBDT(displayPrice)
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Badge

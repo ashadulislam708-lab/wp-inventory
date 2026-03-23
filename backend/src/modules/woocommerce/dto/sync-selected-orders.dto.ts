@@ -1,0 +1,14 @@
+import { IsArray, ArrayMinSize, ArrayMaxSize, IsUUID } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class SyncSelectedOrdersDto {
+    @ApiProperty({
+        description: 'Array of local order UUIDs to sync with WooCommerce',
+        example: ['uuid-1', 'uuid-2'],
+    })
+    @IsArray()
+    @ArrayMinSize(1)
+    @ArrayMaxSize(50)
+    @IsUUID('4', { each: true })
+    orderIds: string[];
+}
