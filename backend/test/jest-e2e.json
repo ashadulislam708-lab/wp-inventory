@@ -1,0 +1,25 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/../src/$1",
+    "^@config/(.*)\\.js$": "<rootDir>/../src/config/$1",
+    "^@core/(.*)\\.js$": "<rootDir>/../src/core/$1",
+    "^@database/(.*)\\.js$": "<rootDir>/../src/database/$1",
+    "^@infrastructure/(.*)\\.js$": "<rootDir>/../src/infrastructure/$1",
+    "^@modules/(.*)\\.js$": "<rootDir>/../src/modules/$1",
+    "^@shared/(.*)\\.js$": "<rootDir>/../src/shared/$1",
+    "^@config/(.*)$": "<rootDir>/../src/config/$1",
+    "^@core/(.*)$": "<rootDir>/../src/core/$1",
+    "^@database/(.*)$": "<rootDir>/../src/database/$1",
+    "^@infrastructure/(.*)$": "<rootDir>/../src/infrastructure/$1",
+    "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
+    "^@shared/(.*)$": "<rootDir>/../src/shared/$1",
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  }
+}

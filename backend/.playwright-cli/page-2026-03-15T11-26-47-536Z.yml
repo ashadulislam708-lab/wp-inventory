@@ -1,0 +1,79 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "Glam Lavish" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e6]: Glam Lavish
+      - navigation [ref=e7]:
+        - link "Dashboard" [ref=e8] [cursor=pointer]:
+          - /url: /
+          - img [ref=e9]
+          - text: Dashboard
+        - link "Products" [ref=e14] [cursor=pointer]:
+          - /url: /products
+          - img [ref=e15]
+          - text: Products
+        - link "Orders" [ref=e19] [cursor=pointer]:
+          - /url: /orders
+          - img [ref=e20]
+          - text: Orders
+        - link "Settings" [ref=e24] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e25]
+          - text: Settings
+      - generic [ref=e29]: Glam Lavish Inventory v1.0
+    - generic [ref=e30]:
+      - banner [ref=e31]:
+        - button "AU Admin User" [ref=e32]:
+          - generic [ref=e34]: AU
+          - generic [ref=e35]: Admin User
+      - main [ref=e36]:
+        - generic [ref=e37]:
+          - heading "Settings" [level=1] [ref=e38]
+          - generic [ref=e39]:
+            - tablist [ref=e40]:
+              - tab "WooCommerce" [selected] [ref=e41]
+              - tab "User Management" [ref=e42]
+              - tab "Sync Logs" [ref=e43]
+            - tabpanel "WooCommerce" [ref=e44]:
+              - generic [ref=e45]:
+                - generic [ref=e47]: Connection Status
+                - generic [ref=e49]:
+                  - generic [ref=e50]:
+                    - img [ref=e51]
+                    - generic [ref=e55]: Disconnected
+                    - generic [ref=e56]: getaddrinfo ENOTFOUND your-woocommerce-store.com
+                  - button "Refresh" [ref=e57]:
+                    - img
+                    - text: Refresh
+              - generic [ref=e58]:
+                - generic [ref=e60]:
+                  - img [ref=e61]
+                  - text: API Configuration
+                - generic [ref=e64]:
+                  - generic [ref=e65]:
+                    - generic [ref=e66]:
+                      - generic [ref=e67]:
+                        - img [ref=e68]
+                        - generic [ref=e71]: Store URL
+                      - paragraph [ref=e72]: https://you***.com
+                    - generic [ref=e73]:
+                      - generic [ref=e74]:
+                        - img [ref=e75]
+                        - generic [ref=e79]: Status
+                      - generic [ref=e80]: Disconnected
+                    - generic [ref=e81]:
+                      - generic [ref=e82]:
+                        - img [ref=e83]
+                        - generic [ref=e86]: Last Sync
+                      - paragraph [ref=e87]: Never
+                  - generic [ref=e88]:
+                    - img [ref=e89]
+                    - paragraph [ref=e91]: WooCommerce API credentials are managed via server environment variables. Contact your administrator to update them.
+              - generic [ref=e92]:
+                - generic [ref=e94]: Sync Actions
+                - generic [ref=e96]:
+                  - button "Import Products" [ref=e97]
+                  - button "Sync Products" [ref=e98]
+                  - button "Sync Orders" [ref=e99]
+  - region "Notifications alt+T"
