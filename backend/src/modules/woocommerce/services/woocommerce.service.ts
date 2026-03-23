@@ -14,6 +14,8 @@ import { SyncLog } from '../../sync/entities/sync-log.entity.js';
 import { SyncLogsQueryDto } from '../dto/sync-logs-query.dto.js';
 import { FetchWcOrdersQueryDto } from '../dto/fetch-wc-orders-query.dto.js';
 import { SyncBulkOrdersDto } from '../dto/sync-bulk-orders.dto.js';
+import { SyncBulkProductsDto } from '../dto/sync-bulk-products.dto.js';
+import { SyncSelectedOrdersDto } from '../dto/sync-selected-orders.dto.js';
 import { ProductTypeEnum } from '../../../shared/enums/product-type.enum.js';
 import { SyncStatusEnum } from '../../../shared/enums/sync-status.enum.js';
 import { SyncDirectionEnum } from '../../../shared/enums/sync-direction.enum.js';
@@ -455,6 +457,32 @@ export class WooCommerceService {
     }
 
     /**
+     * Bulk sync selected products from WooCommerce
+     */
+    async syncBulkProducts(dto: SyncBulkProductsDto) {
+        let synced = 0;
+        let errors = 0;
+        const results: {
+            productId: string;
+            status?: string;
+            error?: string;
+        }[] = [];
+
+        for (const productId of dto.productIds) {
+            try {
+                const result = await this.syncSingleProduct(productId);
+                synced++;
+                results.push({ productId, status: result.status });
+            } catch (error: any) {
+                errors++;
+                results.push({ productId, error: error.message });
+            }
+        }
+
+        return { synced, errors, results };
+    }
+
+    /**
      * Manual order sync (last 30 days)
      */
     async syncOrders() {
@@ -466,6 +494,7 @@ export class WooCommerceService {
         const perPage = 100;
         let synced = 0;
         let errors = 0;
+        const errorDetails: Array<{ wcOrderId: number; error: string }> = [];
 
         try {
             while (true) {
@@ -491,6 +520,10 @@ export class WooCommerceService {
                         synced++;
                     } catch (error: any) {
                         errors++;
+                        errorDetails.push({
+                            wcOrderId: wcOrder.id,
+                            error: error.message,
+                        });
                         this.logger.error(
                             `Order sync error for WC #${wcOrder.id}: ${error.message}`,
                         );
@@ -504,7 +537,7 @@ export class WooCommerceService {
             this.logger.error(`Order sync failed: ${error.message}`);
         }
 
-        return { synced, errors };
+        return { synced, errors, errorDetails };
     }
 
     /**
@@ -599,6 +632,104 @@ export class WooCommerceService {
                 `Failed to add note to WC order ${wcOrderId}: ${err.message}`,
             );
         }
+    }
+
+    /**
+     * Sync selected orders with WooCommerce (bidirectional).
+     * - Inbound: Pull latest order data/status from WC
+     * - Outbound: Push discount, advance, and invoice notes to WC
+     * Only processes orders with source=WOOCOMMERCE and wcOrderId set.
+     * Manual orders are silently skipped.
+     */
+    async syncSelectedOrders(dto: SyncSelectedOrdersDto) {
+        const orders = await this.orderRepository.find({
+            where: {
+                id: In(dto.orderIds),
+                source: OrderSourceEnum.WOOCOMMERCE,
+            },
+            select: [
+                'id',
+                'invoiceId',
+                'wcOrderId',
+                'status',
+                'discountAmount',
+                'advanceAmount',
+            ],
+        });
+
+        const skipped = dto.orderIds.length - orders.length;
+        let synced = 0;
+        let errors = 0;
+
+        const client = this.getWcClient();
+
+        for (const order of orders) {
+            if (!order.wcOrderId) {
+                continue;
+            }
+
+            try {
+                // --- Inbound: Pull latest from WC ---
+                const response = await client.get(
+                    `/orders/${order.wcOrderId}`,
+                );
+                const wcOrder = response.data;
+
+                // Update status if changed
+                const newStatus =
+                    WC_STATUS_MAP[wcOrder.status] ||
+                    OrderStatusEnum.PENDING_PAYMENT;
+
+                if (order.status !== newStatus) {
+                    await this.orderRepository.update(order.id, {
+                        status: newStatus,
+                    });
+                }
+
+                // --- Outbound: Push notes to WC ---
+                const discount = Number(order.discountAmount);
+                if (discount > 0) {
+                    await this.addOrderNote(
+                        order.wcOrderId,
+                        `Discount Applied: ${discount} BDT — Glam Lavish Inventory System`,
+                    );
+                }
+
+                const advance = Number(order.advanceAmount);
+                if (advance > 0) {
+                    await this.addOrderNote(
+                        order.wcOrderId,
+                        `Advance Payment: ${advance} BDT — Glam Lavish Inventory System`,
+                    );
+                }
+
+                await this.addOrderNote(
+                    order.wcOrderId,
+                    `Invoice Number: ${order.invoiceId} — Glam Lavish Inventory System`,
+                );
+
+                await this.logSync(
+                    SyncDirectionEnum.INBOUND,
+                    'order',
+                    order.id,
+                    SyncLogStatusEnum.SUCCESS,
+                    {
+                        wcOrderId: order.wcOrderId,
+                        wcStatus: wcOrder.status,
+                        localStatus: newStatus,
+                    },
+                );
+
+                synced++;
+            } catch (error: any) {
+                this.logger.error(
+                    `Failed to sync order ${order.id} (WC #${order.wcOrderId}): ${error.message}`,
+                );
+                errors++;
+            }
+        }
+
+        return { synced, skipped, errors };
     }
 
     /**
@@ -1189,7 +1320,6 @@ export class WooCommerceService {
                                 ProductVariation,
                                 {
                                     where: { wcId: lineItem.variation_id },
-                                    relations: ['product'],
                                     lock: { mode: 'pessimistic_write' },
                                 },
                             );

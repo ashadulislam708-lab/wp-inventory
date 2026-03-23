@@ -79,7 +79,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "~/lib/utils";
-import WcOrderBrowser from "./components/WcOrderBrowser";
 import type { FormHandleState } from "~/types/common";
 import type { WcConnectionStatus, SyncLog, ImportResult } from "~/types/settings";
 import type { User } from "~/types/user";
@@ -476,14 +475,25 @@ function SettingsContent() {
               {importResult && (
                 <div className="rounded-lg border bg-gray-50 p-3 text-sm">
                   <p>
-                    Imported: {importResult.imported}, Updated:{" "}
-                    {importResult.updated}, Errors: {importResult.errors}
+                    {importResult.synced != null && `Synced: ${importResult.synced}. `}
+                    {importResult.imported != null && `Imported: ${importResult.imported}. `}
+                    {importResult.updated != null && `Updated: ${importResult.updated}. `}
+                    Errors: {importResult.errors}
                   </p>
-                  {importResult.details.length > 0 && (
+                  {importResult.details && importResult.details.length > 0 && (
                     <ul className="mt-2 space-y-1 text-red-600">
                       {importResult.details.map((d, i) => (
                         <li key={i}>
                           WC ID {d.wcId}: {d.error}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {importResult.errorDetails && importResult.errorDetails.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-red-600">
+                      {importResult.errorDetails.map((d, i) => (
+                        <li key={i}>
+                          WC #{d.wcOrderId}: {d.error}
                         </li>
                       ))}
                     </ul>
@@ -493,7 +503,7 @@ function SettingsContent() {
             </CardContent>
           </Card>
 
-          <WcOrderBrowser />
+
         </TabsContent>
 
         {/* Users Tab */}

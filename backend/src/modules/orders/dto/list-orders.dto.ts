@@ -56,4 +56,11 @@ export class ListOrdersDto {
     @IsOptional()
     @IsString()
     search?: string;
+
+    @ApiPropertyOptional({
+        description: 'Comma-separated order IDs to filter by',
+    })
+    @IsOptional()
+    @IsString()
+    ids?: string;
 }

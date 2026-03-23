@@ -16,6 +16,8 @@ import { WooCommerceService } from '../services/woocommerce.service.js';
 import { SyncLogsQueryDto } from '../dto/sync-logs-query.dto.js';
 import { FetchWcOrdersQueryDto } from '../dto/fetch-wc-orders-query.dto.js';
 import { SyncBulkOrdersDto } from '../dto/sync-bulk-orders.dto.js';
+import { SyncBulkProductsDto } from '../dto/sync-bulk-products.dto.js';
+import { SyncSelectedOrdersDto } from '../dto/sync-selected-orders.dto.js';
 import { Public } from '../../../core/decorators/public.decorator.js';
 import { Roles } from '../../../core/decorators/roles.decorator.js';
 import { RolesGuard } from '../../../core/guards/roles.guard.js';
@@ -103,6 +105,19 @@ export class WooCommerceController {
     }
 
     /**
+     * Bulk sync selected products from WooCommerce
+     * POST /api/woocommerce/sync/products/bulk
+     */
+    @ApiBearerAuth()
+    @UseGuards(RolesGuard)
+    @Roles(UserRoleEnum.ADMIN)
+    @Post('sync/products/bulk')
+    @HttpCode(HttpStatus.OK)
+    async syncBulkProducts(@Body() dto: SyncBulkProductsDto) {
+        return this.wooCommerceService.syncBulkProducts(dto);
+    }
+
+    /**
      * Sync a single product from WooCommerce
      * POST /api/woocommerce/sync/products/:id
      */
@@ -137,6 +152,19 @@ export class WooCommerceController {
     @HttpCode(HttpStatus.OK)
     async syncBulkOrders(@Body() dto: SyncBulkOrdersDto) {
         return this.wooCommerceService.syncBulkOrders(dto);
+    }
+
+    /**
+     * Sync selected orders with WC (pull status + push notes)
+     * POST /api/woocommerce/orders/sync-selected
+     */
+    @ApiBearerAuth()
+    @UseGuards(RolesGuard)
+    @Roles(UserRoleEnum.ADMIN)
+    @Post('orders/sync-selected')
+    @HttpCode(HttpStatus.OK)
+    async syncSelectedOrders(@Body() dto: SyncSelectedOrdersDto) {
+        return this.wooCommerceService.syncSelectedOrders(dto);
     }
 
     /**

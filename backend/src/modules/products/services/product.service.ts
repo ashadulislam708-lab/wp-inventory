@@ -7,7 +7,7 @@ import {
     Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, SelectQueryBuilder } from 'typeorm';
+import { Repository, DataSource, SelectQueryBuilder, In } from 'typeorm';
 import { Product } from '../entities/product.entity.js';
 import { ProductVariation } from '../entities/product-variation.entity.js';
 import { StockAdjustmentLog } from '../entities/stock-adjustment-log.entity.js';
@@ -47,7 +47,14 @@ export class ProductService {
         const qb: SelectQueryBuilder<Product> = this.productRepository
             .createQueryBuilder('product')
             .leftJoinAndSelect('product.category', 'category')
+            .leftJoinAndSelect('product.variations', 'variations')
             .where('product.deletedAt IS NULL');
+
+        // Filter by specific product IDs
+        if (dto.ids) {
+            const idList = dto.ids.split(',').map((id) => id.trim());
+            qb.andWhere('product.id IN (:...ids)', { ids: idList });
+        }
 
         // Search by name or SKU
         if (dto.search) {
@@ -331,6 +338,42 @@ export class ProductService {
                 totalPages: Math.ceil(total / limit),
             },
         };
+    }
+
+    /**
+     * Export products as CSV
+     */
+    async exportProducts(dto: ListProductsDto) {
+        const allDto = { ...dto, page: 1, limit: 10000 };
+        const result = await this.listProducts(allDto);
+
+        const headers = [
+            'Name',
+            'SKU',
+            'Type',
+            'Category',
+            'Stock Quantity',
+            'Low Stock Threshold',
+            'Regular Price',
+            'Sale Price',
+            'Sync Status',
+        ];
+
+        const rows = result.data.map((product) =>
+            [
+                `"${(product.name || '').replace(/"/g, '""')}"`,
+                product.sku || '',
+                product.type,
+                product.category?.name || '',
+                product.stockQuantity,
+                product.lowStockThreshold,
+                product.regularPrice,
+                product.salePrice ?? '',
+                product.syncStatus,
+            ].join(','),
+        );
+
+        return [headers.join(','), ...rows].join('\n');
     }
 
     /**

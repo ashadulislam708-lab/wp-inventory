@@ -41,4 +41,11 @@ export class ListProductsDto {
     @IsOptional()
     @IsString()
     search?: string;
+
+    @ApiPropertyOptional({
+        description: 'Comma-separated product UUIDs to filter by',
+    })
+    @IsOptional()
+    @IsString()
+    ids?: string;
 }

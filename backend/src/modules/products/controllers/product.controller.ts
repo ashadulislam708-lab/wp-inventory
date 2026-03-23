@@ -5,6 +5,7 @@ import {
     Param,
     Body,
     Query,
+    Res,
     HttpCode,
     HttpStatus,
     ParseUUIDPipe,
@@ -31,6 +32,21 @@ export class ProductController {
     @HttpCode(HttpStatus.OK)
     async findAll(@Query() dto: ListProductsDto) {
         return this.productService.listProducts(dto);
+    }
+
+    /**
+     * Export products as CSV
+     * GET /api/products/export
+     */
+    @Get('export')
+    async exportProducts(@Query() dto: ListProductsDto, @Res() res: any) {
+        const csv = await this.productService.exportProducts(dto);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename=products-${crypto.randomUUID()}.csv`,
+        );
+        return res.send(csv);
     }
 
     /**

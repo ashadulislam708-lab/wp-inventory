@@ -7,6 +7,7 @@ import { clearCurrentOrder } from "~/redux/features/orderSlice";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 import {
   Select,
@@ -53,6 +54,7 @@ import {
   Phone,
   MapPin,
   ExternalLink,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "~/lib/utils";
@@ -76,6 +78,11 @@ export default function OrderDetailPage() {
     status: string;
   }>({ open: false, status: "" });
 
+  // Inline discount/advance editing state
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [advanceAmount, setAdvanceAmount] = useState(0);
+  const [isSavingAmounts, setIsSavingAmounts] = useState(false);
+
   // Notes state
   const [notes, setNotes] = useState<OrderNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -96,6 +103,44 @@ export default function OrderDetailPage() {
       dispatch(clearCurrentOrder());
     };
   }, [dispatch, id]);
+
+  // Sync discount/advance state when order loads or updates
+  useEffect(() => {
+    if (order) {
+      setDiscountAmount(Number(order.discountAmount) || 0);
+      setAdvanceAmount(Number(order.advanceAmount) || 0);
+    }
+  }, [order]);
+
+  // Derived calculations (same as CreateOrderPage)
+  const subtotal = order ? Number(order.subtotal) : 0;
+  const shippingFee = order ? Number(order.shippingFee) : 0;
+  const calcGrandTotal = subtotal - discountAmount + shippingFee;
+  const calcDueAmount = calcGrandTotal - advanceAmount;
+
+  const hasAmountChanges = order
+    ? discountAmount !== (Number(order.discountAmount) || 0) ||
+      advanceAmount !== (Number(order.advanceAmount) || 0)
+    : false;
+
+  const handleSaveAmounts = useCallback(() => {
+    if (!id || !hasAmountChanges) return;
+    setIsSavingAmounts(true);
+    orderService
+      .updateOrder(id, { discountAmount, advanceAmount })
+      .then(() => {
+        toast.success("Discount & advance updated successfully");
+        dispatch(fetchOrderDetail(id));
+      })
+      .catch((err: unknown) => {
+        toast.error(
+          (err as { message?: string })?.message || "Failed to update amounts"
+        );
+      })
+      .finally(() => {
+        setIsSavingAmounts(false);
+      });
+  }, [id, discountAmount, advanceAmount, hasAmountChanges, dispatch]);
 
   const handleStatusChange = useCallback(
     (newStatus: string) => {
@@ -177,6 +222,13 @@ export default function OrderDetailPage() {
   const isEditable =
     order.status === OrderStatusEnum.PENDING_PAYMENT ||
     order.status === OrderStatusEnum.ON_HOLD;
+  const terminalStatuses = [
+    OrderStatusEnum.COMPLETED,
+    OrderStatusEnum.CANCELLED,
+    OrderStatusEnum.REFUNDED,
+    OrderStatusEnum.FAILED,
+  ];
+  const isAmountEditable = !terminalStatuses.includes(order.status as OrderStatusEnum);
   const allowedStatuses = ALLOWED_TRANSITIONS[order.status] ?? [];
 
   return (
@@ -428,35 +480,107 @@ export default function OrderDetailPage() {
               </TableBody>
             </Table>
             <Separator className="my-3" />
-            <div className="space-y-1 text-sm">
+            <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span>{formatBDT(order.subtotal)}</span>
               </div>
-              {Number(order.discountAmount) > 0 && (
+
+              {/* Discount — editable when order is in non-terminal status */}
+              {isAmountEditable ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Discount</span>
+                    <div className="relative w-32">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">৳</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={subtotal}
+                        value={discountAmount || ""}
+                        onChange={(e) => setDiscountAmount(Math.min(subtotal, Math.max(0, Number(e.target.value))))}
+                        placeholder="0"
+                        className="h-8 text-sm pl-6 text-right"
+                      />
+                    </div>
+                  </div>
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-xs text-green-600">
+                      <span>After Discount</span>
+                      <span>{formatBDT(subtotal - discountAmount)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <div className="flex justify-between text-red-600">
                   <span>Discount</span>
                   <span>-{formatBDT(order.discountAmount)}</span>
                 </div>
               )}
+
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Shipping</span>
                 <span>{formatBDT(order.shippingFee)}</span>
               </div>
+              <Separator />
               <div className="flex justify-between font-bold text-base pt-1">
                 <span>Grand Total (COD)</span>
-                <span>{formatBDT(order.grandTotal)}</span>
+                <span>{formatBDT(isAmountEditable ? calcGrandTotal : order.grandTotal)}</span>
               </div>
-              {Number(order.advanceAmount) > 0 && (
+
+              {/* Advance — editable when order is in non-terminal status */}
+              {isAmountEditable ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Advance Payment</span>
+                    <div className="relative w-32">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">৳</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={calcGrandTotal}
+                        value={advanceAmount || ""}
+                        onChange={(e) => setAdvanceAmount(Math.min(calcGrandTotal, Math.max(0, Number(e.target.value))))}
+                        placeholder="0"
+                        className="h-8 text-sm pl-6 text-right"
+                      />
+                    </div>
+                  </div>
+                  {advanceAmount > 0 && (
+                    <div className="flex justify-between text-xs text-green-600">
+                      <span>After Advance</span>
+                      <span>{formatBDT(calcDueAmount)}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <div className="flex justify-between text-green-600">
                   <span>Advance Payment</span>
                   <span>-{formatBDT(order.advanceAmount)}</span>
                 </div>
               )}
+
               <div className="flex justify-between font-bold text-base">
                 <span>Due Amount</span>
-                <span>{formatBDT(Number(order.grandTotal) - Number(order.advanceAmount))}</span>
+                <span>{formatBDT(isAmountEditable ? calcDueAmount : Number(order.grandTotal) - Number(order.advanceAmount))}</span>
               </div>
+
+              {/* Save button — only when values changed */}
+              {isAmountEditable && hasAmountChanges && (
+                <Button
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={handleSaveAmounts}
+                  disabled={isSavingAmounts}
+                >
+                  {isSavingAmounts ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Save Changes
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -648,7 +772,7 @@ export default function OrderDetailPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-primary">
-                      {note.createdBy}
+                      {note.createdBy?.name || 'System'}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {formatDateTime(note.createdAt)}
