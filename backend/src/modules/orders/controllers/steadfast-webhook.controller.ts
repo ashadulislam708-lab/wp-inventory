@@ -1,14 +1,13 @@
 import {
     Controller,
     Post,
-    Body,
+    Req,
     HttpCode,
     HttpStatus,
     Logger,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../../core/decorators/public.decorator.js';
-import { SteadfastWebhookDto } from '../dto/steadfast-webhook.dto.js';
 import { OrderService } from '../services/order.service.js';
 
 @ApiTags('Steadfast Webhook')
@@ -21,12 +20,20 @@ export class SteadfastWebhookController {
     @Public()
     @Post('webhook')
     @HttpCode(HttpStatus.OK)
-    async handleWebhook(@Body() dto: SteadfastWebhookDto) {
+    async handleWebhook(@Req() req: any) {
+        const body = req.body;
+
         this.logger.log(
-            `Steadfast webhook received: type=${dto.notification_type}, consignment_id=${dto.consignment_id}`,
+            `Steadfast webhook received: type=${body.notification_type}, consignment_id=${body.consignment_id}, status=${body.status}, invoice=${body.invoice}`,
         );
 
-        await this.orderService.handleSteadfastWebhook(dto);
+        try {
+            await this.orderService.handleSteadfastWebhook(body);
+        } catch (err: any) {
+            this.logger.error(
+                `Steadfast webhook processing error: ${err.message}`,
+            );
+        }
 
         return {
             status: 'success',

@@ -16,7 +16,6 @@ import { CreateOrderDto } from '../dto/create-order.dto.js';
 import { UpdateOrderDto } from '../dto/update-order.dto.js';
 import { UpdateOrderStatusDto } from '../dto/update-order-status.dto.js';
 import { ListOrdersDto } from '../dto/list-orders.dto.js';
-import { SteadfastWebhookDto } from '../dto/steadfast-webhook.dto.js';
 import { OrderStatusEnum } from '../../../shared/enums/order-status.enum.js';
 import { OrderSourceEnum } from '../../../shared/enums/order-source.enum.js';
 import { ShippingZoneEnum } from '../../../shared/enums/shipping-zone.enum.js';
@@ -1357,35 +1356,51 @@ export class OrderService {
 
     /**
      * Handle Steadfast webhook notifications (delivery_status & tracking_update)
+     * Accepts raw body object — no class-validator DTO to avoid rejecting webhooks
      */
-    async handleSteadfastWebhook(dto: SteadfastWebhookDto): Promise<void> {
-        // Look up order by consignment_id first, then by invoice
-        let order = await this.orderRepository.findOne({
-            where: { courierConsignmentId: String(dto.consignment_id) },
-            relations: ['items'],
-        });
+    async handleSteadfastWebhook(body: Record<string, any>): Promise<void> {
+        const consignmentId = String(body.consignment_id ?? '');
+        const invoice = String(body.invoice ?? '');
+        const notificationType = String(body.notification_type ?? '');
 
-        if (!order && dto.invoice) {
+        if (!consignmentId && !invoice) {
+            this.logger.warn(
+                'Steadfast webhook: no consignment_id or invoice provided',
+            );
+            return;
+        }
+
+        // Look up order by consignment_id first, then by invoice
+        let order: Order | null = null;
+
+        if (consignmentId) {
             order = await this.orderRepository.findOne({
-                where: { invoiceId: dto.invoice },
+                where: { courierConsignmentId: consignmentId },
+                relations: ['items'],
+            });
+        }
+
+        if (!order && invoice) {
+            order = await this.orderRepository.findOne({
+                where: { invoiceId: invoice },
                 relations: ['items'],
             });
         }
 
         if (!order) {
             this.logger.warn(
-                `Steadfast webhook: no order found for consignment_id=${dto.consignment_id}, invoice=${dto.invoice}`,
+                `Steadfast webhook: no order found for consignment_id=${consignmentId}, invoice=${invoice}`,
             );
             return;
         }
 
-        if (dto.notification_type === 'delivery_status') {
-            await this.handleSteadfastDeliveryStatus(order, dto);
-        } else if (dto.notification_type === 'tracking_update') {
-            await this.handleSteadfastTrackingUpdate(order, dto);
+        if (notificationType === 'delivery_status') {
+            await this.handleSteadfastDeliveryStatus(order, body);
+        } else if (notificationType === 'tracking_update') {
+            await this.handleSteadfastTrackingUpdate(order, body);
         } else {
             this.logger.warn(
-                `Steadfast webhook: unknown notification_type=${dto.notification_type} for order ${order.invoiceId}`,
+                `Steadfast webhook: unknown notification_type=${notificationType} for order ${order.invoiceId}`,
             );
         }
     }
@@ -1396,9 +1411,9 @@ export class OrderService {
      */
     private async handleSteadfastDeliveryStatus(
         order: Order,
-        dto: SteadfastWebhookDto,
+        body: Record<string, any>,
     ): Promise<void> {
-        const steadfastStatus = dto.status?.toLowerCase();
+        const steadfastStatus = String(body.status ?? '').toLowerCase();
 
         const statusMap: Record<string, OrderStatusEnum | null> = {
             pending: null,
@@ -1408,7 +1423,7 @@ export class OrderService {
             unknown: null,
         };
 
-        const newStatus = statusMap[steadfastStatus ?? ''] ?? null;
+        const newStatus = statusMap[steadfastStatus] ?? null;
 
         if (newStatus === null) {
             this.logger.log(
@@ -1491,19 +1506,20 @@ export class OrderService {
      */
     private async handleSteadfastTrackingUpdate(
         order: Order,
-        dto: SteadfastWebhookDto,
+        body: Record<string, any>,
     ): Promise<void> {
-        if (!dto.tracking_message) {
+        const trackingMessage = body.tracking_message;
+        if (!trackingMessage) {
             return;
         }
 
         this.logger.log(
-            `Steadfast webhook: tracking update for order ${order.invoiceId}: ${dto.tracking_message}`,
+            `Steadfast webhook: tracking update for order ${order.invoiceId}: ${trackingMessage}`,
         );
 
         const note = this.orderNoteRepository.create({
             orderId: order.id,
-            content: `[Steadfast Tracking] ${dto.tracking_message}`,
+            content: `[Steadfast Tracking] ${trackingMessage}`,
             createdById: null,
         });
 
