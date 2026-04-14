@@ -33,6 +33,16 @@ export class OrderItemDto {
     @IsInt()
     @Min(1)
     quantity: number;
+
+    @ApiPropertyOptional({
+        description:
+            'Custom unit price override (BDT). Uses product price if omitted.',
+        minimum: 0,
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    unitPrice?: number;
 }
 
 export class CreateOrderDto {

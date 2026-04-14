@@ -50,6 +50,7 @@ import {
   ChevronRight,
   Loader2,
   Minus,
+  Pencil,
   Plus,
   Trash2,
   Search,
@@ -66,6 +67,7 @@ interface CartItem {
   variationLabel: string;
   imageUrl: string | null;
   unitPrice: number;
+  originalUnitPrice: number;
   quantity: number;
   maxStock: number;
 }
@@ -244,6 +246,7 @@ export default function CreateOrderPage() {
             variationLabel: "",
             imageUrl: product.imageUrl,
             unitPrice: product.salePrice ?? product.regularPrice,
+            originalUnitPrice: product.salePrice ?? product.regularPrice,
             quantity: 1,
             maxStock: product.stockQuantity,
           },
@@ -281,6 +284,7 @@ export default function CreateOrderPage() {
           variationLabel: attrLabel,
           imageUrl: variation.imageUrl || selectedProduct.imageUrl,
           unitPrice: variation.salePrice ?? variation.regularPrice,
+          originalUnitPrice: variation.salePrice ?? variation.regularPrice,
           quantity: 1,
           maxStock: variation.stockQuantity,
         },
@@ -312,6 +316,17 @@ export default function CreateOrderPage() {
     setCartItems((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState<string>("");
+
+  const handlePriceChange = useCallback((index: number, value: number) => {
+    setCartItems((prev) =>
+      prev.map((item, i) =>
+        i === index ? { ...item, unitPrice: Math.max(0, value) } : item
+      )
+    );
+  }, []);
+
   const handleCreateOrder = useCallback(
     (data: CreateOrderFormData) => {
       if (cartItems.length === 0) {
@@ -324,6 +339,7 @@ export default function CreateOrderPage() {
         productId: item.productId,
         variationId: item.variationId,
         quantity: item.quantity,
+        unitPrice: item.unitPrice,
       }));
 
       orderService
@@ -723,7 +739,42 @@ export default function CreateOrderPage() {
                             </div>
                           </TableCell>
                           <TableCell className="font-medium">
-                            {formatBDT(item.unitPrice * item.quantity)}
+                            {editingPriceIndex === index ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                autoFocus
+                                value={editingPriceValue}
+                                className="w-28 h-8 text-sm"
+                                onChange={(e) => setEditingPriceValue(e.target.value)}
+                                onBlur={() => {
+                                  const val = parseFloat(editingPriceValue);
+                                  if (!isNaN(val) && val >= 0) handlePriceChange(index, val);
+                                  setEditingPriceIndex(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const val = parseFloat(editingPriceValue);
+                                    if (!isNaN(val) && val >= 0) handlePriceChange(index, val);
+                                    setEditingPriceIndex(null);
+                                  }
+                                  if (e.key === "Escape") setEditingPriceIndex(null);
+                                }}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPriceIndex(index);
+                                  setEditingPriceValue(String(item.unitPrice));
+                                }}
+                                className={`flex items-center gap-1.5 rounded px-2 py-1 border border-dashed hover:border-solid hover:bg-muted/50 transition-colors ${item.unitPrice !== item.originalUnitPrice ? "border-amber-400 text-amber-600" : "border-border"}`}
+                                title="Click to edit unit price"
+                              >
+                                <span>{formatBDT(item.unitPrice * item.quantity)}</span>
+                                <Pencil className="h-3 w-3 opacity-50 flex-shrink-0" />
+                              </button>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Button

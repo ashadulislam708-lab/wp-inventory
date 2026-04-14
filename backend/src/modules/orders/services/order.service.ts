@@ -298,6 +298,10 @@ export class OrderService {
                         unitPrice = Number(
                             variation.salePrice || variation.regularPrice || 0,
                         );
+                        // Use caller-provided price if given (order-level override, does not touch product)
+                        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+                            unitPrice = item.unitPrice;
+                        }
                         productName = parentProduct?.name || 'Unknown Product';
                         const attrs = variation.attributes || {};
                         variationLabel =
@@ -346,6 +350,10 @@ export class OrderService {
                         unitPrice = Number(
                             product.salePrice || product.regularPrice || 0,
                         );
+                        // Use caller-provided price if given (order-level override, does not touch product)
+                        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+                            unitPrice = item.unitPrice;
+                        }
                         productName = product.name;
                     }
 

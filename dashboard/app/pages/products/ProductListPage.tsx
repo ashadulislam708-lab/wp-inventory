@@ -196,18 +196,6 @@ export default function ProductListPage() {
           <h1 className="text-xl font-bold">Products</h1>
           <p className="text-sm text-muted-foreground">Synced from WooCommerce</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleImport}
-          disabled={isImporting}
-        >
-          {isImporting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          Import Products
-        </Button>
       </div>
 
       <Card>
@@ -273,19 +261,6 @@ export default function ProductListPage() {
                 title="No products found"
                 description="Import products from WooCommerce to get started."
               />
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={handleImport}
-                disabled={isImporting}
-              >
-                {isImporting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Import Products
-              </Button>
             </div>
           ) : (
             <>

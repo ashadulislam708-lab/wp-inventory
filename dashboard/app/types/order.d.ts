@@ -40,6 +40,7 @@ export interface CreateOrderItemRequest {
   productId: string;
   variationId: string | null;
   quantity: number;
+  unitPrice?: number;
 }
 
 export interface CreateOrderRequest {
