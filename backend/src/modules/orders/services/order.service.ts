@@ -299,7 +299,10 @@ export class OrderService {
                             variation.salePrice || variation.regularPrice || 0,
                         );
                         // Use caller-provided price if given (order-level override, does not touch product)
-                        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+                        if (
+                            item.unitPrice !== undefined &&
+                            item.unitPrice >= 0
+                        ) {
                             unitPrice = item.unitPrice;
                         }
                         productName = parentProduct?.name || 'Unknown Product';
@@ -351,7 +354,10 @@ export class OrderService {
                             product.salePrice || product.regularPrice || 0,
                         );
                         // Use caller-provided price if given (order-level override, does not touch product)
-                        if (item.unitPrice !== undefined && item.unitPrice >= 0) {
+                        if (
+                            item.unitPrice !== undefined &&
+                            item.unitPrice >= 0
+                        ) {
                             unitPrice = item.unitPrice;
                         }
                         productName = product.name;
@@ -947,7 +953,7 @@ export class OrderService {
 
         if (order.shippingPartner !== ShippingPartnerEnum.STEADFAST) {
             throw new BadRequestException(
-                `Courier retry is only supported for Steadfast orders. This order uses: ${order.shippingPartner}`,
+                `Courier retry is only supported for Steadfast orders. ${order.shippingPartner} is not yet integrated.`,
             );
         }
 
@@ -983,6 +989,61 @@ export class OrderService {
                 `Steadfast courier push failed: ${err.message}`,
             );
         }
+    }
+
+    /**
+     * Manually add or edit courier info (consignment ID, tracking code, tracking URL)
+     * Blocked for terminal statuses: COMPLETED, CANCELLED, REFUNDED
+     */
+    async updateCourierInfo(
+        id: string,
+        dto: {
+            courierConsignmentId?: string;
+            courierTrackingCode?: string;
+            courierTrackingUrl?: string;
+        },
+    ) {
+        const order = await this.orderRepository.findOne({ where: { id } });
+
+        if (!order) {
+            throw new NotFoundException(`Order with ID ${id} not found`);
+        }
+
+        const terminalStatuses = [
+            OrderStatusEnum.COMPLETED,
+            OrderStatusEnum.CANCELLED,
+            OrderStatusEnum.REFUNDED,
+        ];
+
+        if (terminalStatuses.includes(order.status)) {
+            throw new BadRequestException(
+                `Cannot edit courier info for an order with status: ${order.status}`,
+            );
+        }
+
+        const updates: Partial<Order> = {};
+
+        if (dto.courierConsignmentId !== undefined) {
+            updates.courierConsignmentId = dto.courierConsignmentId || null;
+        }
+        if (dto.courierTrackingCode !== undefined) {
+            updates.courierTrackingCode = dto.courierTrackingCode || null;
+        }
+        if (dto.courierTrackingUrl !== undefined) {
+            updates.courierTrackingUrl = dto.courierTrackingUrl || null;
+        }
+
+        await this.orderRepository.update(id, updates);
+
+        return this.orderRepository.findOne({
+            where: { id },
+            relations: [
+                'items',
+                'items.product',
+                'items.variation',
+                'createdBy',
+            ],
+        });
     }
 
     /**

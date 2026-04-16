@@ -123,6 +123,14 @@ export class Order {
     })
     courierTrackingCode: string | null;
 
+    @Column({
+        name: 'courier_tracking_url',
+        type: 'varchar',
+        length: 500,
+        nullable: true,
+    })
+    courierTrackingUrl: string | null;
+
     @Column({ name: 'qr_code_data_url', type: 'text', nullable: true })
     qrCodeDataUrl: string | null;
 

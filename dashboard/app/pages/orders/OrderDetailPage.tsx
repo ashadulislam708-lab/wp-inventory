@@ -53,7 +53,6 @@ import {
   User,
   Phone,
   MapPin,
-  ExternalLink,
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -82,6 +81,15 @@ export default function OrderDetailPage() {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [advanceAmount, setAdvanceAmount] = useState(0);
   const [isSavingAmounts, setIsSavingAmounts] = useState(false);
+
+  // Courier edit state
+  const [isCourierEditOpen, setIsCourierEditOpen] = useState(false);
+  const [courierForm, setCourierForm] = useState({
+    courierConsignmentId: "",
+    courierTrackingCode: "",
+    courierTrackingUrl: "",
+  });
+  const [isSavingCourier, setIsSavingCourier] = useState(false);
 
   // Notes state
   const [notes, setNotes] = useState<OrderNote[]>([]);
@@ -182,6 +190,40 @@ export default function OrderDetailPage() {
         setFormHandle({ isLoading: false, loadingButtonType: "" });
       });
   }, [id, dispatch]);
+
+  const handleOpenCourierEdit = useCallback(() => {
+    if (!order) return;
+    setCourierForm({
+      courierConsignmentId: order.courierConsignmentId ?? "",
+      courierTrackingCode: order.courierTrackingCode ?? "",
+      courierTrackingUrl: order.courierTrackingUrl ?? "",
+    });
+    setIsCourierEditOpen(true);
+  }, [order]);
+
+  const handleSaveCourierInfo = useCallback(() => {
+    if (!id) return;
+    setIsSavingCourier(true);
+    orderService
+      .updateCourierInfo(id, {
+        courierConsignmentId: courierForm.courierConsignmentId,
+        courierTrackingCode: courierForm.courierTrackingCode,
+        courierTrackingUrl: courierForm.courierTrackingUrl,
+      })
+      .then(() => {
+        toast.success("Courier information updated");
+        setIsCourierEditOpen(false);
+        dispatch(fetchOrderDetail(id));
+      })
+      .catch((err: unknown) => {
+        toast.error(
+          (err as { message?: string })?.message || "Failed to update courier info"
+        );
+      })
+      .finally(() => {
+        setIsSavingCourier(false);
+      });
+  }, [id, courierForm, dispatch]);
 
   const handleSyncOrder = useCallback(() => {
     if (!id) return;
@@ -660,8 +702,23 @@ export default function OrderDetailPage() {
 
         {/* Courier Info */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>Courier Information</CardTitle>
+            {![
+              OrderStatusEnum.COMPLETED,
+              OrderStatusEnum.CANCELLED,
+              OrderStatusEnum.REFUNDED,
+            ].includes(order.status) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleOpenCourierEdit}
+                className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              >
+                <Edit className="h-3.5 w-3.5 mr-1" />
+                {order.courierConsignmentId ? "Edit" : "Add"}
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div>
@@ -672,9 +729,7 @@ export default function OrderDetailPage() {
               <span className="text-muted-foreground">Consignment ID:</span>{" "}
               <span className="font-medium">
                 {order.courierConsignmentId ?? (
-                  <span className="text-red-500">
-                    Not sent - Use Push to Courier
-                  </span>
+                  <span className="text-muted-foreground italic">Not set</span>
                 )}
               </span>
             </div>
@@ -686,21 +741,76 @@ export default function OrderDetailPage() {
                 </span>
               </div>
             )}
-            {order.courierConsignmentId && order.courierTrackingCode && (
-              <div className="pt-2">
-                <a
-                  href={`https://portal.packzy.com/tracking/${order.courierTrackingCode}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-sm text-indigo-600 hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Track on Steadfast
-                </a>
-              </div>
-            )}
           </CardContent>
         </Card>
+
+        {/* Courier Edit Dialog */}
+        <Dialog open={isCourierEditOpen} onOpenChange={setIsCourierEditOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {order.courierConsignmentId
+                  ? "Edit Courier Information"
+                  : "Add Courier Information"}
+              </DialogTitle>
+              <DialogDescription>
+                Manually set the consignment ID, tracking code, and tracking
+                link for this order.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {order.courierConsignmentId && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  Warning: Changing the consignment ID of a Steadfast order will
+                  break automatic delivery status updates.
+                </p>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Consignment ID</label>
+                <Input
+                  placeholder="e.g. 233569773"
+                  value={courierForm.courierConsignmentId}
+                  onChange={(e) =>
+                    setCourierForm((f) => ({
+                      ...f,
+                      courierConsignmentId: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Tracking Code</label>
+                <Input
+                  placeholder="e.g. SFR260328STC1D1CF0BD"
+                  value={courierForm.courierTrackingCode}
+                  onChange={(e) =>
+                    setCourierForm((f) => ({
+                      ...f,
+                      courierTrackingCode: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsCourierEditOpen(false)}
+                disabled={isSavingCourier}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleSaveCourierInfo} disabled={isSavingCourier}>
+                {isSavingCourier ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Order Metadata */}

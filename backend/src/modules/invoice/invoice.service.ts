@@ -85,7 +85,14 @@ export class InvoiceService {
             invoiceId: order.invoiceId,
             date: order.createdAt,
             courierName:
-                order.shippingPartner === 'STEADFAST' ? 'Steadfast' : 'Pathao',
+                (
+                    {
+                        STEADFAST: 'Steadfast',
+                        PATHAO: 'Pathao',
+                        CARRYBEE: 'CarryBee',
+                        REDX: 'RedX',
+                    } as Record<string, string>
+                )[order.shippingPartner] ?? order.shippingPartner,
             trackingCode: order.courierTrackingCode,
             deliveryId: order.courierConsignmentId,
             customerName: order.customerName,

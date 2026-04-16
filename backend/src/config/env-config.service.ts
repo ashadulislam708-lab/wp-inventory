@@ -109,6 +109,30 @@ class EnvConfigService {
     }
 
     /**
+     * CarryBee courier config (scaffold — no integration yet)
+     * Set CARRYBEE_API_KEY and CARRYBEE_SECRET_KEY when integrating.
+     */
+    public getCarrybeeConfig() {
+        return {
+            CARRYBEE_API_KEY: this.getValue('CARRYBEE_API_KEY', false) || '',
+            CARRYBEE_SECRET_KEY:
+                this.getValue('CARRYBEE_SECRET_KEY', false) || '',
+            CARRYBEE_BASE_URL: 'https://carrybee.com.bd/api',
+        };
+    }
+
+    /**
+     * RedX courier config (scaffold — no integration yet)
+     * Set REDX_API_KEY when integrating.
+     */
+    public getRedxConfig() {
+        return {
+            REDX_API_KEY: this.getValue('REDX_API_KEY', false) || '',
+            REDX_BASE_URL: 'https://openapi.redx.com.bd/v1.0.0-beta',
+        };
+    }
+
+    /**
      * Pathao courier config (Phase 6 scaffold)
      * Required env vars will be needed when Pathao integration is implemented.
      */

@@ -28,6 +28,7 @@ export interface Order {
   advanceAmount: number;
   courierConsignmentId: string | null;
   courierTrackingCode: string | null;
+  courierTrackingUrl: string | null;
   qrCodeDataUrl: string | null;
   wcOrderId: string | null;
   createdBy: { id: string; name: string; email: string } | null;
@@ -56,6 +57,12 @@ export interface CreateOrderRequest {
 
 export interface UpdateOrderStatusRequest {
   status: OrderStatusEnum;
+}
+
+export interface UpdateCourierInfoRequest {
+  courierConsignmentId?: string;
+  courierTrackingCode?: string;
+  courierTrackingUrl?: string;
 }
 
 export interface FetchOrdersParams {

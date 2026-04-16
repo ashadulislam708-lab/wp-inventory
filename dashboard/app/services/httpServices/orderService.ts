@@ -7,6 +7,7 @@ import type {
   InvoiceData,
   Order,
   OrderNote,
+  UpdateCourierInfoRequest,
   UpdateOrderStatusRequest,
 } from "~/types/order";
 import type { PaginatedResponse } from "~/types/common";
@@ -35,6 +36,9 @@ export const orderService = {
 
   retryCourier: (id: string) =>
     httpService.post<Order>(`/orders/${id}/retry-courier`),
+
+  updateCourierInfo: (id: string, data: UpdateCourierInfoRequest) =>
+    httpService.patch<Order>(`/orders/${id}/courier`, data),
 
   exportOrders: (params?: FetchOrdersParams) =>
     httpService.getBlob("/orders/export", { params }),

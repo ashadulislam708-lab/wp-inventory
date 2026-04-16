@@ -51,7 +51,14 @@ export class TrackingService {
             status: order.status,
             statusTimeline,
             courierName:
-                order.shippingPartner === 'STEADFAST' ? 'Steadfast' : 'Pathao',
+                (
+                    {
+                        STEADFAST: 'Steadfast',
+                        PATHAO: 'Pathao',
+                        CARRYBEE: 'CarryBee',
+                        REDX: 'RedX',
+                    } as Record<string, string>
+                )[order.shippingPartner] ?? order.shippingPartner,
             courierTrackingCode: order.courierTrackingCode,
             courierTrackingUrl,
         };

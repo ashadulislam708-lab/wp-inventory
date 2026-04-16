@@ -26,6 +26,7 @@ import { ListOrdersDto } from '../dto/list-orders.dto.js';
 import { CreateOrderNoteDto } from '../dto/create-order-note.dto.js';
 import { CustomerHistoryQueryDto } from '../dto/customer-history-query.dto.js';
 import { BulkPushCourierDto } from '../dto/bulk-push-courier.dto.js';
+import { UpdateCourierInfoDto } from '../dto/update-courier-info.dto.js';
 import { CurrentUser } from '../../../core/decorators/current-user.decorator.js';
 import { Roles } from '../../../core/decorators/roles.decorator.js';
 import { RolesGuard } from '../../../core/guards/roles.guard.js';
@@ -208,6 +209,19 @@ export class OrderController {
     @HttpCode(HttpStatus.OK)
     async getQrCode(@Param('id', ParseUUIDPipe) id: string) {
         return this.orderService.getQrCode(id);
+    }
+
+    /**
+     * Manually add or edit courier info (consignment ID, tracking code, tracking URL)
+     * PATCH /api/orders/:id/courier
+     */
+    @Patch(':id/courier')
+    @HttpCode(HttpStatus.OK)
+    async updateCourierInfo(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Body() dto: UpdateCourierInfoDto,
+    ) {
+        return this.orderService.updateCourierInfo(id, dto);
     }
 
     /**
