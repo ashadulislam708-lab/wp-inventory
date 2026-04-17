@@ -111,8 +111,9 @@ export class WooCommerceService {
         // Check deduplication (5-second window)
         const existing = await this.productRepository.findOne({
             where: { wcId },
+            withDeleted: true,
         });
-        if (existing?.wcLastSyncedAt) {
+        if (existing?.wcLastSyncedAt && !existing.deletedAt) {
             const timeDiff = Date.now() - existing.wcLastSyncedAt.getTime();
             if (timeDiff < 5000) {
                 await this.logSync(
@@ -130,7 +131,7 @@ export class WooCommerceService {
         try {
             // Handle deleted products
             if (body.status === 'trash' || body.deleted) {
-                if (existing) {
+                if (existing && !existing.deletedAt) {
                     existing.deletedAt = new Date();
                     await this.productRepository.save(existing);
                     await this.logSync(
@@ -145,9 +146,9 @@ export class WooCommerceService {
             }
 
             // Upsert product content (NOT stock)
-            await this.upsertProduct(body);
+            const result = await this.upsertProduct(body);
 
-            return { status: 'success', wcId };
+            return { status: result, wcId };
         } catch (error: any) {
             await this.logSync(
                 SyncDirectionEnum.INBOUND,
